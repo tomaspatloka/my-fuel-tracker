@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="cs">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="description" content="Aplikace pro sledování spotřeby paliva">
+    <meta name="theme-color" content="#3f51b5">
+    <title>FuelTracker</title>
+
+    <!-- Google Fonts: Roboto & Material Symbols -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"
+        rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.webmanifest">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- App Bar -->
+        <header class="app-bar">
+            <div class="app-bar-content">
+                <div class="app-title-wrapper">
+                    <span class="material-symbols-outlined app-logo">local_gas_station</span>
+                    <h1 class="app-title">FuelTracker</h1>
+                </div>
+                <!-- Vehicle Selector -->
+                <div class="app-actions">
+                    <select id="vehicleSelector" class="vehicle-selector" onchange="switchVehicle(this.value)">
+                        <option value="">Načítání...</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tabs -->
+        <nav class="tabs-container">
+            <div class="tabs-scroll">
+                <button class="tab active" onclick="switchTab('dashboard', event)">
+                    <span class="material-symbols-outlined">dashboard</span>
+                    <span class="tab-label">Přehled</span>
+                </button>
+                <button class="tab" onclick="switchTab('refuel', event)">
+                    <span class="material-symbols-outlined">add_circle</span>
+                    <span class="tab-label">Tankování</span>
+                </button>
+                <button class="tab" onclick="switchTab('stats', event)">
+                    <span class="material-symbols-outlined">bar_chart</span>
+                    <span class="tab-label">Statistiky</span>
+                </button>
+                <button class="tab" onclick="switchTab('garage', event)">
+                    <span class="material-symbols-outlined">directions_car</span>
+                    <span class="tab-label">Garáž</span>
+                </button>
+                <button class="tab" onclick="switchTab('settings', event)">
+                    <span class="material-symbols-outlined">settings</span>
+                    <span class="tab-label">Nastavení</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content" id="mainContent">
+            <!-- Content loaded here -->
+        </main>
+
+        <!-- Floating Action Button (Visible on Dashboard and Log list) -->
+        <div class="fab-container" id="fabContainer">
+            <button class="fab-main" onclick="switchTab('refuel', null)">
+                <span class="material-symbols-outlined">add</span>
+            </button>
+        </div>
+
+        <!-- Notification -->
+        <div id="notification" class="notification">
+            <span class="material-symbols-outlined notification-icon">info</span>
+            <span id="notificationMessage"></span>
+        </div>
+
+        <!-- Update Available Banner -->
+        <div id="updateBanner" class="update-banner" style="display: none;">
+            <div class="update-content">
+                <span class="material-symbols-outlined">system_update</span>
+                <span>Nová verze je k dispozici!</span>
+            </div>
+            <button class="button text-button" onclick="updateApp()" style="color: white;">
+                Aktualizovat
+            </button>
+        </div>
+
+        <!-- Modal (For editing/adding vehicles) -->
+        <div class="modal" id="carModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <span class="material-symbols-outlined modal-icon">directions_car</span>
+                    <h3 id="carModalTitle">Nové auto</h3>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Název (např. Moje Octavia)</label>
+                    <input type="text" id="carName" class="text-field" placeholder="Název auta">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Výrobce</label>
+                    <input type="text" id="carMaker" class="text-field" placeholder="Škoda">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Typ/Model</label>
+                    <input type="text" id="carType" class="text-field" placeholder="Octavia Combi">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Motor</label>
+                    <input type="text" id="carEngine" class="text-field" placeholder="2.0 TDI">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Objem nádrže (l)</label>
+                    <input type="number" id="carTank" class="text-field" placeholder="50">
+                </div>
+                <input type="hidden" id="carId">
+                <div class="modal-actions"
+                    style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px;">
+                    <button class="button text-button" onclick="closeModal('carModal')">Zrušit</button>
+                    <button class="button filled-button" onclick="saveCar()">Uložit</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal (For Adding/Editing Refuel) -->
+        <div class="modal" id="refuelModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <span class="material-symbols-outlined modal-icon">local_gas_station</span>
+                    <h3 id="refuelModalTitle">Nové tankování</h3>
+                </div>
+
+                <input type="hidden" id="refuelId">
+                <input type="hidden" id="refuelVehicleId">
+
+                <div class="form-group">
+                    <label class="form-label">Datum</label>
+                    <input type="date" id="refuelDate" class="text-field">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Stav tachometru (km)</label>
+                    <input type="number" id="refuelOdo" class="text-field">
+                    <div id="refuelOdoHint"
+                        style="font-size: 0.75rem; color: var(--md-sys-color-outline); margin-top: 4px;"></div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label class="form-label">Natankováno (l)</label>
+                        <input type="number" id="refuelLiters" class="text-field" step="0.01"
+                            oninput="calculateTotal()">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label class="form-label">Cena za litr</label>
+                        <input type="number" id="refuelPrice" class="text-field" step="0.01" oninput="calculateTotal()">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Celková cena</label>
+                    <input type="number" id="refuelTotal" class="text-field" step="0.1" readonly
+                        style="background-color: var(--md-sys-color-surface-variant); cursor: not-allowed;">
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="refuelFull" checked>
+                        <span>Plná nádrž</span>
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Poznámka</label>
+                    <input type="text" id="refuelNote" class="text-field" placeholder="Např. Shell...">
+                </div>
+
+                <div class="modal-actions"
+                    style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px;">
+                    <button class="button text-button" onclick="closeModal('refuelModal')">Zrušit</button>
+                    <button class="button filled-button" onclick="saveRefuelFromModal()">Uložit</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/logger.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/app.js"></script>
+    
+    <!-- PWA Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            let newWorker;
+
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => {
+                        console.log('Service Worker registered.');
+
+                        // Check for updates
+                        reg.addEventListener('updatefound', () => {
+                            newWorker = reg.installing;
+                            Logger.info('ServiceWorker', 'Update found, installing new version');
+
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // New service worker available
+                                    Logger.info('ServiceWorker', 'New version ready to activate');
+                                    showUpdateBanner();
+                                }
+                            });
+                        });
+                    })
+                    .catch(err => {
+                        console.log('Service Worker registration failed:', err);
+                        Logger.error('ServiceWorker', 'Registration failed', { error: err.message });
+                    });
+            });
+
+            // Show update banner
+            function showUpdateBanner() {
+                const banner = document.getElementById('updateBanner');
+                if (banner) {
+                    banner.style.display = 'flex';
+                }
+            }
+
+            // Update app function (global scope for onclick)
+            window.updateApp = function() {
+                if (newWorker) {
+                    Logger.info('ServiceWorker', 'User initiated update');
+                    newWorker.postMessage({ type: 'SKIP_WAITING' });
+                }
+
+                // Reload when new service worker takes control
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    Logger.info('ServiceWorker', 'New version activated, reloading');
+                    window.location.reload();
+                });
+            };
+        }
+    </script>
+</body>
+
+</html>

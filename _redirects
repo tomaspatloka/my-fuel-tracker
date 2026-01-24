@@ -1,0 +1,7 @@
+# Cloudflare Pages Redirects Configuration
+
+# SPA - All routes to index.html (for client-side routing if needed in future)
+/* /index.html 200
+
+# Force HTTPS (Cloudflare handles this automatically, but good to specify)
+http://:splat https://:splat 301!
