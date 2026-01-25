@@ -679,45 +679,43 @@ function saveRefuelFromModal() {
             return;
         }
 
-        // 3. Odo Logic check - validate also during edit
+        // 3. Odo Logic check - validate based on DATE, not insertion order
+        // This allows adding old forgotten refuels with past dates
         const logs = DataManager.getRefuels(vehicleId);
         if (logs.length > 0) {
-            if (id) {
-                // Edit mode - check that odometer fits between prev and next refuels
-                const currentIndex = logs.findIndex(r => r.id === id);
-                if (currentIndex !== -1) {
-                    // Check previous refuel (older - higher index in sorted array)
-                    const prevRefuel = logs[currentIndex + 1];
-                    const nextRefuel = currentIndex > 0 ? logs[currentIndex - 1] : null;
+            // Find where this refuel would fit chronologically based on date
+            const newDate = new Date(date);
 
-                    if (prevRefuel && odo <= prevRefuel.odometer) {
-                        showNotification(`Tachometr musí být > ${prevRefuel.odometer} km (předchozí tankování)`);
-                        Logger.warn('Refuel', 'Odometer must be greater than previous', {
-                            newOdo: odo,
-                            prevOdo: prevRefuel.odometer
-                        });
-                        return;
-                    }
+            // Get all other refuels (exclude current one if editing)
+            const otherLogs = id ? logs.filter(r => r.id !== id) : logs;
 
-                    if (nextRefuel && odo >= nextRefuel.odometer) {
-                        showNotification(`Tachometr musí být < ${nextRefuel.odometer} km (následující tankování)`);
-                        Logger.warn('Refuel', 'Odometer must be less than next', {
-                            newOdo: odo,
-                            nextOdo: nextRefuel.odometer
-                        });
-                        return;
-                    }
-                }
-            } else {
-                // Add mode - new refuel must have higher odometer than latest
-                if (odo <= logs[0].odometer) {
-                    showNotification(`Tachometr musí být > ${logs[0].odometer} km`);
-                    Logger.warn('Refuel', 'Odometer not increasing', {
-                        newOdo: odo,
-                        lastOdo: logs[0].odometer
-                    });
-                    return;
-                }
+            // Find the refuel immediately before this date (older)
+            const prevRefuel = otherLogs.find(r => new Date(r.date) < newDate);
+            // Find the refuel immediately after this date (newer) - reverse search
+            const nextRefuel = [...otherLogs].reverse().find(r => new Date(r.date) > newDate);
+
+            // Validate: odometer must be greater than previous (older) refuel
+            if (prevRefuel && odo <= prevRefuel.odometer) {
+                showNotification(`Tachometr musí být > ${prevRefuel.odometer} km (tankování z ${formatDate(prevRefuel.date)})`);
+                Logger.warn('Refuel', 'Odometer must be greater than previous by date', {
+                    newOdo: odo,
+                    newDate: date,
+                    prevOdo: prevRefuel.odometer,
+                    prevDate: prevRefuel.date
+                });
+                return;
+            }
+
+            // Validate: odometer must be less than next (newer) refuel
+            if (nextRefuel && odo >= nextRefuel.odometer) {
+                showNotification(`Tachometr musí být < ${nextRefuel.odometer} km (tankování z ${formatDate(nextRefuel.date)})`);
+                Logger.warn('Refuel', 'Odometer must be less than next by date', {
+                    newOdo: odo,
+                    newDate: date,
+                    nextOdo: nextRefuel.odometer,
+                    nextDate: nextRefuel.date
+                });
+                return;
             }
         }
 
