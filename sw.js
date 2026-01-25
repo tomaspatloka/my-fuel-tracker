@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v2.1.0';
+const CACHE_VERSION = 'v2.2.0';
 const CACHE_NAME = `fuel-tracker-${CACHE_VERSION}`;
 
 const ASSETS_TO_CACHE = [
@@ -69,6 +69,13 @@ self.addEventListener('fetch', event => {
 
     // Skip Chrome extensions and other non-http(s) requests
     if (!event.request.url.startsWith('http')) {
+        return;
+    }
+
+    // Let Google Fonts requests pass through to network directly
+    // Google CDN handles caching efficiently, no need to interfere
+    if (event.request.url.includes('fonts.googleapis.com') ||
+        event.request.url.includes('fonts.gstatic.com')) {
         return;
     }
 
