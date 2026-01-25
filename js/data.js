@@ -136,6 +136,26 @@ const DataManager = {
             issuesFound += (beforeCount - this.state.refuels.length);
         }
 
+        // Validate services
+        if (!this.state.services) this.state.services = [];
+        const beforeServicesCount = this.state.services.length;
+        this.state.services = this.state.services.filter(s => {
+            if (!s.id || !s.vehicleId || !s.date) {
+                Logger.warn('DataManager', 'Invalid service found and removed', { service: s });
+                return false;
+            }
+            // Remove orphaned services
+            if (!vehicleIds.has(s.vehicleId)) {
+                Logger.warn('DataManager', 'Orphaned service removed', { service: s });
+                return false;
+            }
+            return true;
+        });
+
+        if (this.state.services.length < beforeServicesCount) {
+            issuesFound += (beforeServicesCount - this.state.services.length);
+        }
+
         if (issuesFound > 0) {
             Logger.warn('DataManager', 'Data integrity issues found and fixed', {
                 issuesCount: issuesFound
@@ -938,13 +958,16 @@ const DataManager = {
                 return false;
             }
 
+            // Ensure services is an array (for backward compatibility)
+            const services = Array.isArray(data.services) ? data.services : [];
+
             // Merge data
             this.state = {
                 ...this.state,
                 version: data.version || this.DATA_VERSION,
                 vehicles: data.vehicles,
                 refuels: data.refuels,
-                services: data.services || [],
+                services: services,
                 settings: { ...this.state.settings, ...data.settings }
             };
 

@@ -895,12 +895,13 @@ function renderSeasonStat(name, data, currency) {
     if (data.dist === 0) return '';
     const cons = (data.liters / data.dist * 100).toFixed(1);
     const cost = (data.cost / data.dist).toFixed(2);
+    const safeCurrency = escapeHtml(currency);
     return `
         <div class="log-item">
-            <div class="log-main">${name}</div>
+            <div class="log-main">${escapeHtml(name)}</div>
             <div style="text-align: right;">
-                <div class="log-value">${cons} l/100km</div>
-                <div class="log-sub">${cost} ${currency}/km</div>
+                <div class="log-value">${escapeHtml(cons)} l/100km</div>
+                <div class="log-sub">${escapeHtml(cost)} ${safeCurrency}/km</div>
             </div>
         </div>
     `;
@@ -1774,6 +1775,9 @@ function exportCSV() {
             return;
         }
 
+        // Use the same consumption calculation as dashboard for consistency
+        const consumptionMap = DataManager.calculateConsumptionForRefuels(activeVehicle.id);
+
         // CSV Header
         const headers = [
             'Datum',
@@ -1783,25 +1787,15 @@ function exportCSV() {
             'Celková cena (Kč)',
             'Plná nádrž',
             'Poznámka',
-            'Spotřeba (l/100km)',
-            'Ujetá vzdálenost (km)'
+            'Spotřeba (l/100km)'
         ];
 
         // Build CSV rows
         const rows = [headers.join(',')];
 
-        refuels.forEach((refuel, index) => {
-            // Calculate consumption and distance if possible
-            let consumption = '';
-            let distance = '';
-
-            if (index < refuels.length - 1 && refuel.isFullTank) {
-                const prevRefuel = refuels[index + 1];
-                distance = refuel.odometer - prevRefuel.odometer;
-                if (distance > 0) {
-                    consumption = ((refuel.liters / distance) * 100).toFixed(1);
-                }
-            }
+        refuels.forEach((refuel) => {
+            // Use pre-calculated consumption from consumptionMap
+            const consumption = consumptionMap[refuel.id] !== null ? consumptionMap[refuel.id] : '';
 
             const row = [
                 formatDate(refuel.date),
@@ -1811,8 +1805,7 @@ function exportCSV() {
                 refuel.totalPrice.toFixed(2),
                 refuel.isFullTank ? 'Ano' : 'Ne',
                 `"${(refuel.notes || '').replace(/"/g, '""')}"`, // Escape quotes
-                consumption,
-                distance
+                consumption
             ];
 
             rows.push(row.join(','));
