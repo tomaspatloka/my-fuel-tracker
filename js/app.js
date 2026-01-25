@@ -1482,6 +1482,19 @@ function renderSettings() {
                          <span class="material-symbols-outlined">download</span>
                     </div>
                 </div>
+                <h3 style="font-size: 1rem; margin: 16px 0 8px; color: var(--md-sys-color-primary);">Údržba aplikace</h3>
+                <div class="settings-group" onclick="forceUpdateApp()">
+                    <div class="settings-item">
+                        <div>
+                            <div>Vynutit aktualizaci</div>
+                            <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                Vyčistí mezipaměť a znovu načte aplikaci
+                            </div>
+                        </div>
+                        <span class="material-symbols-outlined">refresh</span>
+                    </div>
+                </div>
+
                 <div class="settings-group" onclick="clearLogs()">
                     <div class="settings-item">
                          <span style="color: var(--md-sys-color-error);">Smazat logy</span>
@@ -1497,6 +1510,52 @@ function renderSettings() {
             stack: e.stack
         });
         showNotification('Chyba při načítání nastavení');
+    }
+}
+
+/**
+ * Force update the app by unregistering service workers and clearing caches
+ */
+async function forceUpdateApp() {
+    if (!confirm("Vynutit aktualizaci? Aplikace vyčistí mezipaměť (Cache) a restartuje se.")) {
+        return;
+    }
+
+    try {
+        Logger.info('App', 'Force update initiated');
+        showNotification("Aktualizuji aplikaci...");
+
+        // 1. Unregister all service workers
+        if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (let registration of registrations) {
+                await registration.unregister();
+                Logger.debug('App', 'ServiceWorker unregistered');
+            }
+        }
+
+        // 2. Delete all caches
+        if ('caches' in window) {
+            const cacheNames = await caches.keys();
+            for (let name of cacheNames) {
+                await caches.delete(name);
+                Logger.debug('App', 'Cache deleted', { name });
+            }
+        }
+
+        // 3. Clear session storage
+        sessionStorage.clear();
+
+        // 4. Force reload from server
+        Logger.info('App', 'Redirecting to reload');
+
+        setTimeout(() => {
+            window.location.reload(true);
+        }, 1000);
+
+    } catch (e) {
+        Logger.error('App', 'Force update failed', { error: e.message });
+        window.location.reload();
     }
 }
 
