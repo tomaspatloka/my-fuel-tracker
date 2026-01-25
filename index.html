@@ -89,16 +89,6 @@
             <span id="notificationMessage"></span>
         </div>
 
-        <!-- Update Available Banner -->
-        <div id="updateBanner" class="update-banner" style="display: none;">
-            <div class="update-content">
-                <span class="material-symbols-outlined">system_update</span>
-                <span>Nová verze je k dispozici!</span>
-            </div>
-            <button class="button text-button" onclick="updateApp()" style="color: white;">
-                Aktualizovat
-            </button>
-        </div>
 
         <!-- Modal (For editing/adding vehicles) -->
         <div class="modal" id="carModal">
@@ -265,57 +255,66 @@
     <script src="js/sync.js"></script>
     <script src="js/app.js"></script>
     
-    <!-- PWA Service Worker Registration -->
+    <!-- PWA Service Worker Registration - Auto Update -->
     <script>
         if ('serviceWorker' in navigator) {
-            let newWorker;
-
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js')
                     .then(reg => {
                         console.log('Service Worker registered.');
 
-                        // Check for updates
+                        // Check for updates periodically (every 60 seconds when app is open)
+                        setInterval(() => {
+                            reg.update();
+                        }, 60000);
+
+                        // Also check for updates when app becomes visible
+                        document.addEventListener('visibilitychange', () => {
+                            if (document.visibilityState === 'visible') {
+                                reg.update();
+                            }
+                        });
+
+                        // Log when update is found
                         reg.addEventListener('updatefound', () => {
-                            newWorker = reg.installing;
+                            const newWorker = reg.installing;
                             Logger.info('ServiceWorker', 'Update found, installing new version');
 
                             newWorker.addEventListener('statechange', () => {
-                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                    // New service worker available
-                                    Logger.info('ServiceWorker', 'New version ready to activate');
-                                    showUpdateBanner();
+                                if (newWorker.state === 'installed') {
+                                    Logger.info('ServiceWorker', 'New version installed');
                                 }
                             });
                         });
                     })
                     .catch(err => {
                         console.log('Service Worker registration failed:', err);
-                        Logger.error('ServiceWorker', 'Registration failed', { error: err.message });
+                        if (typeof Logger !== 'undefined') {
+                            Logger.error('ServiceWorker', 'Registration failed', { error: err.message });
+                        }
                     });
-            });
 
-            // Show update banner
-            function showUpdateBanner() {
-                const banner = document.getElementById('updateBanner');
-                if (banner) {
-                    banner.style.display = 'flex';
-                }
-            }
+                // Listen for messages from Service Worker
+                navigator.serviceWorker.addEventListener('message', event => {
+                    if (event.data && event.data.type === 'SW_UPDATED') {
+                        console.log('App updated to version:', event.data.version);
+                        if (typeof Logger !== 'undefined') {
+                            Logger.info('ServiceWorker', 'Auto-update complete', { version: event.data.version });
+                        }
+                        // Auto reload to apply update
+                        window.location.reload();
+                    }
+                });
 
-            // Update app function (global scope for onclick)
-            window.updateApp = function() {
-                if (newWorker) {
-                    Logger.info('ServiceWorker', 'User initiated update');
-                    newWorker.postMessage({ type: 'SKIP_WAITING' });
-                }
-
-                // Reload when new service worker takes control
+                // Auto reload when new service worker takes control
                 navigator.serviceWorker.addEventListener('controllerchange', () => {
-                    Logger.info('ServiceWorker', 'New version activated, reloading');
+                    console.log('New service worker activated, reloading...');
+                    if (typeof Logger !== 'undefined') {
+                        Logger.info('ServiceWorker', 'Controller changed, reloading');
+                    }
                     window.location.reload();
                 });
-            };
+            });
         }
     </script>
 </body>

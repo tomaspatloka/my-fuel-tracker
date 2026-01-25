@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v2.5.1';
+const CACHE_VERSION = 'v2.6.0';
 const CACHE_NAME = `fuel-tracker-${CACHE_VERSION}`;
 
 const ASSETS_TO_CACHE = [
@@ -14,7 +14,7 @@ const ASSETS_TO_CACHE = [
     './icons/icon-512.png'
 ];
 
-// Install event - cache assets
+// Install event - cache assets and immediately activate
 self.addEventListener('install', event => {
     console.log('[Service Worker] Installing version:', CACHE_VERSION);
 
@@ -25,7 +25,8 @@ self.addEventListener('install', event => {
                 return cache.addAll(ASSETS_TO_CACHE);
             })
             .then(() => {
-                console.log('[Service Worker] Skip waiting');
+                // Immediately activate new service worker (auto-update)
+                console.log('[Service Worker] Skip waiting - auto update enabled');
                 return self.skipWaiting();
             })
             .catch(error => {
@@ -35,7 +36,7 @@ self.addEventListener('install', event => {
     );
 });
 
-// Activate event - clean up old caches
+// Activate event - clean up old caches and take control immediately
 self.addEventListener('activate', event => {
     console.log('[Service Worker] Activating version:', CACHE_VERSION);
 
@@ -52,8 +53,18 @@ self.addEventListener('activate', event => {
                 );
             })
             .then(() => {
-                console.log('[Service Worker] Claiming clients');
+                // Take control of all clients immediately (auto-update)
+                console.log('[Service Worker] Claiming clients - auto update');
                 return self.clients.claim();
+            })
+            .then(() => {
+                // Notify all clients to reload for the new version
+                return self.clients.matchAll({ type: 'window' });
+            })
+            .then(clients => {
+                clients.forEach(client => {
+                    client.postMessage({ type: 'SW_UPDATED', version: CACHE_VERSION });
+                });
             })
             .catch(error => {
                 console.error('[Service Worker] Activation failed:', error);
