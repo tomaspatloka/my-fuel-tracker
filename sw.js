@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v2.2.0';
+const CACHE_VERSION = 'v2.3.0';
 const CACHE_NAME = `fuel-tracker-${CACHE_VERSION}`;
 
 const ASSETS_TO_CACHE = [
@@ -8,6 +8,7 @@ const ASSETS_TO_CACHE = [
     './js/app.js',
     './js/data.js',
     './js/logger.js',
+    './js/sync.js',
     './manifest.webmanifest',
     './icons/icon-128.png',
     './icons/icon-512.png'
@@ -76,6 +77,11 @@ self.addEventListener('fetch', event => {
     // Google CDN handles caching efficiently, no need to interfere
     if (event.request.url.includes('fonts.googleapis.com') ||
         event.request.url.includes('fonts.gstatic.com')) {
+        return;
+    }
+
+    // Let API requests pass through to network directly (for cloud sync)
+    if (event.request.url.includes('/api/')) {
         return;
     }
 

@@ -859,6 +859,67 @@ function renderSettings() {
                 </div>
                 ` : ''}
 
+                <h3 style="font-size: 1rem; margin: 16px 0 8px; color: var(--md-sys-color-primary);">Cloud synchronizace</h3>
+                <div class="settings-group">
+                    <div class="settings-item">
+                        <div>
+                            <div>Synchronizace do cloudu</div>
+                            <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                Zálohovat data automaticky
+                            </div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" ${settings.cloudSync ? 'checked' : ''} onchange="toggleCloudSync(this)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                ${typeof CloudSync !== 'undefined' ? `
+                <div class="settings-group">
+                    <div class="settings-item">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="material-symbols-outlined" style="font-size: 16px; color: ${CloudSync.isOnline() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-error)'};">
+                                    ${CloudSync.isOnline() ? 'cloud_done' : 'cloud_off'}
+                                </span>
+                                <span>${CloudSync.isOnline() ? 'Online' : 'Offline'}</span>
+                            </div>
+                            <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                Poslední sync: ${CloudSync.getSyncStatus().lastSyncFormatted}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-group" onclick="syncNow()">
+                    <div class="settings-item">
+                        <span>Synchronizovat nyní</span>
+                        <span class="material-symbols-outlined">sync</span>
+                    </div>
+                </div>
+                <div class="settings-group" onclick="showSyncId()">
+                    <div class="settings-item">
+                        <div>
+                            <div>Zobrazit Sync ID</div>
+                            <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                Pro obnovení dat na jiném zařízení
+                            </div>
+                        </div>
+                        <span class="material-symbols-outlined">key</span>
+                    </div>
+                </div>
+                <div class="settings-group" onclick="restoreFromId()">
+                    <div class="settings-item">
+                        <div>
+                            <div>Obnovit z jiného zařízení</div>
+                            <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                Zadejte Sync ID pro stažení dat
+                            </div>
+                        </div>
+                        <span class="material-symbols-outlined">cloud_download</span>
+                    </div>
+                </div>
+                ` : ''}
+
                 <h3 style="font-size: 1rem; margin: 16px 0 8px; color: var(--md-sys-color-primary);">Data</h3>
                 <div class="settings-group" onclick="exportData()">
                     <div class="settings-item">
@@ -1350,5 +1411,116 @@ function clearLogs() {
             stack: e.stack
         });
         showNotification('Chyba při mazání logů');
+    }
+}
+
+// === Cloud Sync Functions ===
+function toggleCloudSync(checkbox) {
+    DataManager.updateSettings({ cloudSync: checkbox.checked });
+    Logger.info('Settings', 'Cloud sync toggled', { enabled: checkbox.checked });
+
+    if (checkbox.checked && typeof CloudSync !== 'undefined') {
+        showNotification('Synchronizuji...');
+        CloudSync.fullSync().then(result => {
+            if (result.success) {
+                showNotification('Data synchronizována');
+                renderSettings();
+            } else {
+                showNotification('Chyba synchronizace: ' + result.error);
+            }
+        });
+    }
+}
+
+async function syncNow() {
+    if (typeof CloudSync === 'undefined') {
+        showNotification('Cloud sync není dostupný');
+        return;
+    }
+
+    showNotification('Synchronizuji...');
+    const result = await CloudSync.fullSync();
+
+    if (result.success) {
+        showNotification('Data synchronizována');
+        renderApp();
+    } else {
+        showNotification('Chyba: ' + result.error);
+    }
+}
+
+function showSyncId() {
+    if (typeof CloudSync === 'undefined') {
+        showNotification('Cloud sync není dostupný');
+        return;
+    }
+
+    const status = CloudSync.getSyncStatus();
+    const content = `
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <span class="material-symbols-outlined">key</span>
+                    Vaše Sync ID
+                </h2>
+                <button class="button text-button" onclick="renderSettings()">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <p style="margin-bottom: 16px; color: var(--md-sys-color-on-surface-variant);">
+                Toto ID použijte pro obnovení dat na jiném zařízení.
+            </p>
+            <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; word-break: break-all; font-family: monospace; margin-bottom: 16px;">
+                ${status.userId}
+            </div>
+            <button class="button filled-button" style="width: 100%;" onclick="copySyncId()">
+                <span class="material-symbols-outlined">content_copy</span>
+                Zkopírovat do schránky
+            </button>
+        </div>
+    `;
+    document.getElementById('mainContent').innerHTML = content;
+}
+
+async function copySyncId() {
+    if (typeof CloudSync !== 'undefined') {
+        const success = await CloudSync.copyUserId();
+        if (success) {
+            showNotification('ID zkopírováno do schránky');
+        } else {
+            showNotification('Nepodařilo se zkopírovat');
+        }
+    }
+}
+
+async function restoreFromId() {
+    if (typeof CloudSync === 'undefined') {
+        showNotification('Cloud sync není dostupný');
+        return;
+    }
+
+    const userId = prompt('Zadejte Sync ID z jiného zařízení:');
+    if (!userId) return;
+
+    if (!userId.startsWith('fuel_')) {
+        showNotification('Neplatné Sync ID');
+        return;
+    }
+
+    if (CloudSync.setUserId(userId)) {
+        showNotification('Stahuji data...');
+        const result = await CloudSync.pullFromCloud();
+
+        if (result.success && result.data) {
+            CloudSync.mergeData(result.data);
+            showNotification('Data úspěšně obnovena!');
+            renderApp();
+        } else if (result.success && !result.data) {
+            showNotification('Pro toto ID nebyla nalezena žádná data');
+        } else {
+            showNotification('Chyba: ' + result.error);
+        }
+    } else {
+        showNotification('Neplatné Sync ID');
     }
 }

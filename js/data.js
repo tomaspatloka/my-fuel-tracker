@@ -1,11 +1,11 @@
 "use strict";
 
 const DataManager = {
-    DATA_VERSION: '2.1.0', // Current data structure version
+    DATA_VERSION: '2.2.0', // Current data structure version
 
     // Default State
     state: {
-        version: '2.1.0', // Data version
+        version: '2.2.0', // Data version
         vehicles: [],
         refuels: [],
         settings: {
@@ -15,7 +15,8 @@ const DataManager = {
             currency: "Kč",
             activeVehicleId: null,
             minPrice: 25,
-            maxPrice: 45
+            maxPrice: 45,
+            cloudSync: false // Cloud synchronization
         }
     },
 
@@ -79,11 +80,13 @@ const DataManager = {
                 refuels: [],
                 settings: {
                     darkMode: false,
+                    darkModeAuto: true,
                     notifications: true,
                     currency: "Kč",
                     activeVehicleId: null,
                     minPrice: 25,
-                    maxPrice: 45
+                    maxPrice: 45,
+                    cloudSync: false
                 }
             };
         }
@@ -691,5 +694,64 @@ const DataManager = {
     // --- Helpers ---
     generateId: function () {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    },
+
+    // --- Settings Methods ---
+    getSettings: function () {
+        return this.state.settings;
+    },
+
+    updateSettings: function (newSettings) {
+        this.state.settings = { ...this.state.settings, ...newSettings };
+        this.save();
+        this.applySettings();
+        Logger.info('DataManager', 'Settings updated', newSettings);
+    },
+
+    // --- Export/Import for Cloud Sync ---
+    exportData: function () {
+        return JSON.parse(JSON.stringify(this.state));
+    },
+
+    importData: function (data) {
+        try {
+            if (!data || typeof data !== 'object') {
+                Logger.error('DataManager', 'Invalid import data');
+                return false;
+            }
+
+            // Validate basic structure
+            if (!Array.isArray(data.vehicles) || !Array.isArray(data.refuels)) {
+                Logger.error('DataManager', 'Invalid data structure');
+                return false;
+            }
+
+            // Merge data
+            this.state = {
+                ...this.state,
+                version: data.version || this.DATA_VERSION,
+                vehicles: data.vehicles,
+                refuels: data.refuels,
+                settings: { ...this.state.settings, ...data.settings }
+            };
+
+            // Validate and clean
+            this._validateDataIntegrity();
+            this.save();
+            this.applySettings();
+
+            Logger.info('DataManager', 'Data imported successfully', {
+                vehiclesCount: this.state.vehicles.length,
+                refuelsCount: this.state.refuels.length
+            });
+
+            return true;
+        } catch (e) {
+            Logger.error('DataManager', 'Import failed', {
+                error: e.message,
+                stack: e.stack
+            });
+            return false;
+        }
     }
 };
