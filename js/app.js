@@ -921,20 +921,35 @@ function renderGarage() {
 
             ${vehicles.map(v => {
         const safeId = escapeHtml(v.id);
+        const detailParts = [];
+        if (v.manufacturer) detailParts.push(escapeHtml(v.manufacturer));
+        if (v.type) detailParts.push(escapeHtml(v.type));
+        if (v.engine) detailParts.push(escapeHtml(v.engine));
+
+        const extraParts = [];
+        if (v.licensePlate) extraParts.push(escapeHtml(v.licensePlate));
+        if (v.year) extraParts.push(escapeHtml(v.year));
+
         return `
                 <div class="car-item ${v.id === activeId ? 'active-car' : ''}" onclick="switchVehicle('${safeId}')">
-                    <div>
+                    <div style="flex: 1;">
                         <div style="font-weight: 500; display: flex; align-items: center; gap: 8px;">
                             ${escapeHtml(v.name)}
                             ${v.id === activeId ? '<span class="material-symbols-outlined" style="font-size: 18px; color: var(--md-sys-color-primary);">check_circle</span>' : ''}
                         </div>
                         <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
-                            ${escapeHtml(v.manufacturer)} ${escapeHtml(v.type)} • ${escapeHtml(v.engine)}
+                            ${detailParts.join(' ') || 'Bez detailů'}
                         </div>
+                        ${extraParts.length > 0 ? `<div style="font-size: 0.8rem; color: var(--md-sys-color-outline); margin-top: 2px;">${extraParts.join(' • ')}</div>` : ''}
                     </div>
-                    <button class="button text-button" onclick="event.stopPropagation(); deleteCar('${safeId}')">
-                        <span class="material-symbols-outlined" style="color: var(--md-sys-color-error);">delete</span>
-                    </button>
+                    <div style="display: flex; gap: 4px;">
+                        <button class="button text-button" onclick="event.stopPropagation(); openCarModal('${safeId}')" title="Upravit">
+                            <span class="material-symbols-outlined" style="color: var(--md-sys-color-primary);">edit</span>
+                        </button>
+                        <button class="button text-button" onclick="event.stopPropagation(); deleteCar('${safeId}')" title="Smazat">
+                            <span class="material-symbols-outlined" style="color: var(--md-sys-color-error);">delete</span>
+                        </button>
+                    </div>
                 </div>
             `}).join('')}
         </div>
@@ -1552,15 +1567,39 @@ function renderLineChart(dataPoints) {
 
 
 // === Modals & Modifiers ===
-function openCarModal(id) {
-    document.getElementById('carModal').classList.add('active');
+function openCarModal(editId = null) {
+    const modal = document.getElementById('carModal');
+    const titleEl = document.getElementById('carModalTitle');
+
+    // Clear all fields first
     document.getElementById('carName').value = '';
     document.getElementById('carMaker').value = '';
     document.getElementById('carType').value = '';
     document.getElementById('carEngine').value = '';
     document.getElementById('carTank').value = '';
+    document.getElementById('carLicensePlate').value = '';
+    document.getElementById('carYear').value = '';
     document.getElementById('carId').value = '';
-    document.getElementById('carModalTitle').textContent = 'Nové auto';
+
+    if (editId) {
+        // Edit mode - populate fields
+        const vehicle = DataManager.getVehicle(editId);
+        if (vehicle) {
+            titleEl.textContent = 'Upravit auto';
+            document.getElementById('carId').value = vehicle.id;
+            document.getElementById('carName').value = vehicle.name || '';
+            document.getElementById('carMaker').value = vehicle.manufacturer || '';
+            document.getElementById('carType').value = vehicle.type || '';
+            document.getElementById('carEngine').value = vehicle.engine || '';
+            document.getElementById('carTank').value = vehicle.tankSize || '';
+            document.getElementById('carLicensePlate').value = vehicle.licensePlate || '';
+            document.getElementById('carYear').value = vehicle.year || '';
+        }
+    } else {
+        titleEl.textContent = 'Nové auto';
+    }
+
+    modal.classList.add('active');
 }
 
 function closeModal(id) {
@@ -1573,6 +1612,8 @@ function saveCar() {
     const type = document.getElementById('carType').value.trim();
     const engine = document.getElementById('carEngine').value.trim();
     const tankStr = document.getElementById('carTank').value;
+    const licensePlate = document.getElementById('carLicensePlate').value.trim();
+    const yearStr = document.getElementById('carYear').value;
     const id = document.getElementById('carId').value;
 
     if (!name) {
@@ -1594,6 +1635,17 @@ function saveCar() {
         }
     }
 
+    // Validate year
+    let year = null;
+    if (yearStr) {
+        year = parseInt(yearStr);
+        const currentYear = new Date().getFullYear();
+        if (isNaN(year) || year < 1900 || year > currentYear + 1) {
+            showNotification(`Zadejte platný rok výroby (1900-${currentYear + 1}).`);
+            return;
+        }
+    }
+
     DataManager.saveVehicle({
         id: id || null,
         name,
@@ -1601,11 +1653,13 @@ function saveCar() {
         type,
         engine,
         tankSize: tankSize,
+        licensePlate: licensePlate || null,
+        year: year,
         isDefault: false
     });
 
     closeModal('carModal');
-    showNotification('Auto uloženo!');
+    showNotification(id ? 'Auto upraveno!' : 'Auto uloženo!');
     renderApp(); // Refresh all
 }
 
