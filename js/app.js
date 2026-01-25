@@ -23,7 +23,7 @@ const DomHelper = {
     /**
      * Safely get element by ID
      */
-    getElementById: function(id) {
+    getElementById: function (id) {
         try {
             const element = document.getElementById(id);
             if (!element) {
@@ -42,7 +42,7 @@ const DomHelper = {
     /**
      * Safely set element content
      */
-    setContent: function(elementOrId, content) {
+    setContent: function (elementOrId, content) {
         try {
             const element = typeof elementOrId === 'string'
                 ? this.getElementById(elementOrId)
@@ -67,7 +67,7 @@ const DomHelper = {
     /**
      * Safely get value from input
      */
-    getValue: function(id) {
+    getValue: function (id) {
         try {
             const element = this.getElementById(id);
             if (!element) {
@@ -86,7 +86,7 @@ const DomHelper = {
     /**
      * Safely set value to input
      */
-    setValue: function(id, value) {
+    setValue: function (id, value) {
         try {
             const element = this.getElementById(id);
             if (!element) {
@@ -106,7 +106,7 @@ const DomHelper = {
     /**
      * Safely add event listener
      */
-    addEventListener: function(elementOrId, event, handler) {
+    addEventListener: function (elementOrId, event, handler) {
         try {
             const element = typeof elementOrId === 'string'
                 ? this.getElementById(elementOrId)
@@ -222,25 +222,25 @@ function switchTab(tabName, event) {
             throw new Error('Required DOM elements not found');
         }
 
-    // Show/Hide FAB
-    if (tabName === 'dashboard' || tabName === 'refuel') {
-        fab.style.display = 'flex';
-        const btn = fab.querySelector('.fab-main');
-        btn.onclick = () => openRefuelModal();
-        btn.innerHTML = '<span class="material-symbols-outlined">add</span>';
-    } else if (tabName === 'service') {
-        fab.style.display = 'flex';
-        const btn = fab.querySelector('.fab-main');
-        btn.onclick = () => openServiceModal();
-        btn.innerHTML = '<span class="material-symbols-outlined">add</span>';
-    } else {
-        fab.style.display = 'none';
-    }
+        // Show/Hide FAB
+        if (tabName === 'dashboard' || tabName === 'refuel') {
+            fab.style.display = 'flex';
+            const btn = fab.querySelector('.fab-main');
+            btn.onclick = () => openRefuelModal();
+            btn.innerHTML = '<span class="material-symbols-outlined">add</span>';
+        } else if (tabName === 'service') {
+            fab.style.display = 'flex';
+            const btn = fab.querySelector('.fab-main');
+            btn.onclick = () => openServiceModal();
+            btn.innerHTML = '<span class="material-symbols-outlined">add</span>';
+        } else {
+            fab.style.display = 'none';
+        }
 
-    const activeVehicle = DataManager.getActiveVehicle();
+        const activeVehicle = DataManager.getActiveVehicle();
 
-    if (!activeVehicle && tabName !== 'garage' && tabName !== 'settings') {
-        contentEl.innerHTML = `
+        if (!activeVehicle && tabName !== 'garage' && tabName !== 'settings') {
+            contentEl.innerHTML = `
             <div class="card" style="text-align: center; padding: 40px 20px;">
                 <span class="material-symbols-outlined" style="font-size: 48px; color: var(--md-sys-color-outline);">no_crash</span>
                 <h3>Žádné vozidlo</h3>
@@ -248,28 +248,28 @@ function switchTab(tabName, event) {
                 <button class="button filled-button" onclick="switchTab('garage')">Přejít do Garáže</button>
             </div>
         `;
-        return;
-    }
+            return;
+        }
 
-    switch (tabName) {
-        case 'dashboard':
-            renderDashboard(activeVehicle);
-            break;
-        case 'refuel':
-            renderRefuelHistory(activeVehicle);
-            break;
-        case 'stats':
-            renderStats(activeVehicle);
-            break;
-        case 'service':
-            renderService(activeVehicle);
-            break;
-        case 'garage':
-            renderGarage();
-            break;
-        case 'settings':
-            renderSettings();
-            break;
+        switch (tabName) {
+            case 'dashboard':
+                renderDashboard(activeVehicle);
+                break;
+            case 'refuel':
+                renderRefuelHistory(activeVehicle);
+                break;
+            case 'stats':
+                renderStats(activeVehicle);
+                break;
+            case 'service':
+                renderService(activeVehicle);
+                break;
+            case 'garage':
+                renderGarage();
+                break;
+            case 'settings':
+                renderSettings();
+                break;
         }
     } catch (e) {
         Logger.error('Navigation', 'Failed to switch tab', {
@@ -332,6 +332,7 @@ function renderDashboard(vehicle) {
     const last3 = logs.slice(0, 3);
     const currency = DataManager.state.settings.currency;
     const safeCurrency = escapeHtml(currency);
+    const consumptionMap = DataManager.calculateConsumptionForRefuels(vehicle.id);
 
     const content = `
         <div class="card card-elevated">
@@ -362,7 +363,7 @@ function renderDashboard(vehicle) {
             </div>
 
             <h3 style="font-size: 1rem; margin-bottom: 12px; color: var(--md-sys-color-primary);">Poslední tankování</h3>
-            ${last3.length > 0 ? last3.map(log => createSwipeableLogItem(log, currency)).join('') : '<p style="color: var(--md-sys-color-outline);">Zatím žádné záznamy.</p>'}
+            ${last3.length > 0 ? last3.map(log => createSwipeableLogItem(log, currency, consumptionMap[log.id])).join('') : '<p style="color: var(--md-sys-color-outline);">Zatím žádné záznamy.</p>'}
         </div>
     `;
     document.getElementById('mainContent').innerHTML = content;
@@ -372,12 +373,13 @@ function renderDashboard(vehicle) {
 function renderRefuelHistory(vehicle) {
     const logs = DataManager.getRefuels(vehicle.id);
     const currency = DataManager.state.settings.currency;
+    const consumptionMap = DataManager.calculateConsumptionForRefuels(vehicle.id);
 
     let listContent = '';
     if (logs.length === 0) {
         listContent = `<p style="text-align: center; color: var(--md-sys-color-outline); margin-top: 40px;">Zatím žádné tankování.</p>`;
     } else {
-        listContent = logs.map(log => createSwipeableLogItem(log, currency)).join('');
+        listContent = logs.map(log => createSwipeableLogItem(log, currency, consumptionMap[log.id])).join('');
     }
 
     const content = `
@@ -400,9 +402,10 @@ function renderRefuelHistory(vehicle) {
 }
 
 // Helper to create HTML for swipe item
-function createSwipeableLogItem(log, currency) {
+function createSwipeableLogItem(log, currency, consumption = null) {
     const safeId = escapeHtml(log.id);
     const safeCurrency = escapeHtml(currency);
+    const consumptionDisplay = consumption !== null ? `${escapeHtml(consumption)} l/100km` : '--';
     return `
     <div class="swipe-container" id="log-${safeId}" data-id="${safeId}">
         <div class="swipe-actions-left">
@@ -416,9 +419,10 @@ function createSwipeableLogItem(log, currency) {
                 <div class="log-main">${escapeHtml(formatDate(log.date))}</div>
                 <div class="log-sub">${escapeHtml(log.odometer)} km • ${escapeHtml(log.pricePerLiter)} ${safeCurrency}/l</div>
             </div>
-            <div>
+            <div style="text-align: right;">
                 <div class="log-value">${escapeHtml(log.liters)} l</div>
-                <div class="log-sub" style="text-align: right;">${escapeHtml(log.totalPrice)} ${safeCurrency}</div>
+                <div class="log-sub">${escapeHtml(log.totalPrice)} ${safeCurrency}</div>
+                <div class="log-consumption" style="font-size: 0.75rem; color: var(--md-sys-color-primary); font-weight: 500; margin-top: 2px;">${consumptionDisplay}</div>
             </div>
         </div>
     </div>
@@ -916,8 +920,8 @@ function renderGarage() {
             </div>
 
             ${vehicles.map(v => {
-                const safeId = escapeHtml(v.id);
-                return `
+        const safeId = escapeHtml(v.id);
+        return `
                 <div class="car-item ${v.id === activeId ? 'active-car' : ''}" onclick="switchVehicle('${safeId}')">
                     <div>
                         <div style="font-weight: 500; display: flex; align-items: center; gap: 8px;">
@@ -982,8 +986,8 @@ function renderService(vehicle) {
                     </div>
                 `).join('')}
                 ${expiring.map(s => {
-                    const daysLeft = Math.ceil((new Date(s.validUntil) - new Date()) / (1000 * 60 * 60 * 24));
-                    return `
+            const daysLeft = Math.ceil((new Date(s.validUntil) - new Date()) / (1000 * 60 * 60 * 24));
+            return `
                     <div class="log-item" style="border-left: 3px solid #ff9800; padding-left: 12px; margin-bottom: 8px;">
                         <div>
                             <div class="log-main" style="color: #ff9800;">Brzy vyprší: ${escapeHtml(s.description)}</div>

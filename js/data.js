@@ -838,6 +838,71 @@ const DataManager = {
         };
     },
 
+    /**
+     * Calculate consumption for each refuel record
+     * Returns object: { refuelId: consumption (number or null) }
+     * Consumption is calculated only when previous refuel was full tank
+     */
+    calculateConsumptionForRefuels: function (vehicleId) {
+        try {
+            const logs = this.getRefuels(vehicleId).reverse(); // Oldest first
+            const consumptionMap = {};
+
+            if (logs.length < 2) {
+                // Not enough data - first refuel cannot have consumption
+                logs.forEach(log => {
+                    consumptionMap[log.id] = null;
+                });
+                return consumptionMap;
+            }
+
+            // First refuel never has consumption
+            consumptionMap[logs[0].id] = null;
+
+            for (let i = 1; i < logs.length; i++) {
+                const current = logs[i];
+
+                // Find most recent previous full tank
+                let prevFullIndex = -1;
+                for (let k = i - 1; k >= 0; k--) {
+                    if (logs[k].isFullTank) {
+                        prevFullIndex = k;
+                        break;
+                    }
+                }
+
+                if (prevFullIndex !== -1 && current.isFullTank) {
+                    const prevFull = logs[prevFullIndex];
+                    const dist = current.odometer - prevFull.odometer;
+
+                    if (dist > 0) {
+                        // Sum liters of all fills between prevFull (exclusive) and current (inclusive)
+                        let segmentLiters = 0;
+                        for (let k = prevFullIndex + 1; k <= i; k++) {
+                            segmentLiters += logs[k].liters;
+                        }
+
+                        const consumption = (segmentLiters / dist) * 100;
+                        consumptionMap[current.id] = parseFloat(consumption.toFixed(1));
+                    } else {
+                        consumptionMap[current.id] = null;
+                    }
+                } else {
+                    // Cannot calculate - previous was not full or current is not full
+                    consumptionMap[current.id] = null;
+                }
+            }
+
+            return consumptionMap;
+        } catch (e) {
+            Logger.error('DataManager', 'Failed to calculate consumption for refuels', {
+                error: e.message,
+                vehicleId
+            });
+            return {};
+        }
+    },
+
     // --- Helpers ---
     generateId: function () {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
