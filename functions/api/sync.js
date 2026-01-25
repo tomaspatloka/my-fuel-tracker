@@ -42,10 +42,35 @@ export async function onRequestPost(context) {
 
   try {
     const body = await request.json();
-    const { userId, data } = body;
+    const { userId, data, action } = body;
 
-    if (!userId || !data) {
-      return new Response(JSON.stringify({ error: 'Missing userId or data' }), {
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Missing userId' }), {
+        status: 400,
+        headers: corsHeaders()
+      });
+    }
+
+    // Handle pull action (userId in body for security)
+    if (action === 'pull') {
+      const storedData = await env.FUEL_DATA.get(`user:${userId}`, 'json');
+
+      if (!storedData) {
+        return new Response(JSON.stringify({ data: null, message: 'No data found' }), {
+          status: 200,
+          headers: corsHeaders()
+        });
+      }
+
+      return new Response(JSON.stringify({ data: storedData, lastSync: storedData._lastSync }), {
+        status: 200,
+        headers: corsHeaders()
+      });
+    }
+
+    // Handle push action (default)
+    if (!data) {
+      return new Response(JSON.stringify({ error: 'Missing data' }), {
         status: 400,
         headers: corsHeaders()
       });

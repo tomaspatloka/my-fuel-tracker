@@ -77,7 +77,12 @@ const CloudSync = {
             const userId = this.getUserId();
             Logger.info('CloudSync', 'Pulling data from cloud', { userId });
 
-            const response = await fetch(`${this.apiUrl}?userId=${userId}`);
+            // Use POST with userId in body instead of URL query params for security
+            const response = await fetch(this.apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, action: 'pull' })
+            });
             const result = await response.json();
 
             if (result.data) {

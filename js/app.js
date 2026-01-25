@@ -1,6 +1,22 @@
 "use strict";
 
 /**
+ * XSS Protection - Escape HTML to prevent XSS attacks
+ */
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const str = String(text);
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return str.replace(/[&<>"']/g, char => map[char]);
+}
+
+/**
  * DOM Helper - Safe DOM operations with error handling
  */
 const DomHelper = {
@@ -315,27 +331,28 @@ function renderDashboard(vehicle) {
     const logs = DataManager.getRefuels(vehicle.id);
     const last3 = logs.slice(0, 3);
     const currency = DataManager.state.settings.currency;
+    const safeCurrency = escapeHtml(currency);
 
     const content = `
         <div class="card card-elevated">
             <div class="card-header">
                 <h2 class="card-title">
                     <span class="material-symbols-outlined">analytics</span>
-                    Přehled - ${vehicle.name}
+                    Přehled - ${escapeHtml(vehicle.name)}
                 </h2>
                 <span style="font-size: 0.8rem; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); padding: 4px 8px; border-radius: 8px;">
-                    ${vehicle.engine}
+                    ${escapeHtml(vehicle.engine)}
                 </span>
             </div>
 
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value">${stats ? stats.avgCons : '--'}</div>
+                    <div class="stat-value">${stats ? escapeHtml(stats.avgCons) : '--'}</div>
                     <div class="stat-label">Ø Spotřeba (l/100km)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${stats ? stats.costPerKm : '--'}</div>
-                    <div class="stat-label">Cena/km (${currency})</div>
+                    <div class="stat-value">${stats ? escapeHtml(stats.costPerKm) : '--'}</div>
+                    <div class="stat-label">Cena/km (${safeCurrency})</div>
                 </div>
             </div>
 
@@ -384,8 +401,10 @@ function renderRefuelHistory(vehicle) {
 
 // Helper to create HTML for swipe item
 function createSwipeableLogItem(log, currency) {
+    const safeId = escapeHtml(log.id);
+    const safeCurrency = escapeHtml(currency);
     return `
-    <div class="swipe-container" id="log-${log.id}" data-id="${log.id}">
+    <div class="swipe-container" id="log-${safeId}" data-id="${safeId}">
         <div class="swipe-actions-left">
             <span class="material-symbols-outlined">edit</span>
         </div>
@@ -394,12 +413,12 @@ function createSwipeableLogItem(log, currency) {
         </div>
         <div class="swipe-content log-item">
             <div style="flex: 1;">
-                <div class="log-main">${formatDate(log.date)}</div>
-                <div class="log-sub">${log.odometer} km • ${log.pricePerLiter} ${currency}/l</div>
+                <div class="log-main">${escapeHtml(formatDate(log.date))}</div>
+                <div class="log-sub">${escapeHtml(log.odometer)} km • ${escapeHtml(log.pricePerLiter)} ${safeCurrency}/l</div>
             </div>
             <div>
-                <div class="log-value">${log.liters} l</div>
-                <div class="log-sub" style="text-align: right;">${log.totalPrice} ${currency}</div>
+                <div class="log-value">${escapeHtml(log.liters)} l</div>
+                <div class="log-sub" style="text-align: right;">${escapeHtml(log.totalPrice)} ${safeCurrency}</div>
             </div>
         </div>
     </div>
@@ -407,61 +426,88 @@ function createSwipeableLogItem(log, currency) {
 }
 
 // === Swipe Logic ===
+// Global swipe state to avoid memory leaks from multiple event listeners
+const swipeState = {
+    isDragging: false,
+    startX: 0,
+    currentX: 0,
+    activeContent: null,
+    activeId: null
+};
+
+// Initialize global mouse/touch handlers once
+let swipeHandlersInitialized = false;
+
+function initGlobalSwipeHandlers() {
+    if (swipeHandlersInitialized) return;
+    swipeHandlersInitialized = true;
+
+    // Global mouse move handler
+    window.addEventListener('mousemove', (e) => {
+        if (!swipeState.isDragging || !swipeState.activeContent) return;
+        swipeState.currentX = e.clientX - swipeState.startX;
+        if (swipeState.currentX > 100) swipeState.currentX = 100;
+        if (swipeState.currentX < -100) swipeState.currentX = -100;
+        swipeState.activeContent.style.transform = `translateX(${swipeState.currentX}px)`;
+    });
+
+    // Global mouse up handler
+    window.addEventListener('mouseup', () => {
+        if (swipeState.isDragging && swipeState.activeContent) {
+            swipeState.isDragging = false;
+            swipeState.activeContent.style.transition = 'transform 0.2s ease-out';
+            handleSwipeEnd(swipeState.activeContent, swipeState.currentX, swipeState.activeId);
+            swipeState.currentX = 0;
+            swipeState.activeContent = null;
+            swipeState.activeId = null;
+        }
+    });
+}
+
 function attachSwipeListeners() {
-    const items = document.querySelectorAll('.swipe-container');
+    initGlobalSwipeHandlers();
+
+    const items = document.querySelectorAll('.swipe-container:not([data-swipe-initialized])');
     items.forEach(item => {
-        let startX = 0;
-        let currentX = 0;
-        let isDragging = false;
+        item.setAttribute('data-swipe-initialized', 'true');
 
         const content = item.querySelector('.swipe-content');
         const id = item.dataset.id;
 
         // Touch Events
         content.addEventListener('touchstart', (e) => {
-            startX = e.touches[0].clientX;
-            isDragging = true;
+            swipeState.startX = e.touches[0].clientX;
+            swipeState.isDragging = true;
+            swipeState.activeContent = content;
+            swipeState.activeId = id;
             content.style.transition = 'none';
         });
 
         content.addEventListener('touchmove', (e) => {
-            if (!isDragging) return;
-            currentX = e.touches[0].clientX - startX;
-            // Limit Drag
-            if (currentX > 100) currentX = 100;
-            if (currentX < -100) currentX = -100;
-            content.style.transform = `translateX(${currentX}px)`;
+            if (!swipeState.isDragging || swipeState.activeContent !== content) return;
+            swipeState.currentX = e.touches[0].clientX - swipeState.startX;
+            if (swipeState.currentX > 100) swipeState.currentX = 100;
+            if (swipeState.currentX < -100) swipeState.currentX = -100;
+            content.style.transform = `translateX(${swipeState.currentX}px)`;
         });
 
-        content.addEventListener('touchend', (e) => {
-            isDragging = false;
+        content.addEventListener('touchend', () => {
+            if (swipeState.activeContent !== content) return;
+            swipeState.isDragging = false;
             content.style.transition = 'transform 0.2s ease-out';
-            handleSwipeEnd(content, currentX, id);
-            currentX = 0;
+            handleSwipeEnd(content, swipeState.currentX, id);
+            swipeState.currentX = 0;
+            swipeState.activeContent = null;
+            swipeState.activeId = null;
         });
 
         // Mouse Events (for Desktop testing)
         content.addEventListener('mousedown', (e) => {
-            startX = e.clientX;
-            isDragging = true;
+            swipeState.startX = e.clientX;
+            swipeState.isDragging = true;
+            swipeState.activeContent = content;
+            swipeState.activeId = id;
             content.style.transition = 'none';
-        });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            currentX = e.clientX - startX;
-            if (currentX > 100) currentX = 100;
-            if (currentX < -100) currentX = -100;
-            content.style.transform = `translateX(${currentX}px)`;
-        });
-
-        window.addEventListener('mouseup', (e) => {
-            if (isDragging) {
-                isDragging = false;
-                content.style.transition = 'transform 0.2s ease-out';
-                handleSwipeEnd(content, currentX, id);
-                currentX = 0;
-            }
         });
     });
 }
@@ -633,16 +679,45 @@ function saveRefuelFromModal() {
             return;
         }
 
-        // 3. Odo Logic check (simplified for Edit)
-        if (!id) {
-            const logs = DataManager.getRefuels(vehicleId);
-            if (logs.length > 0 && odo <= logs[0].odometer) {
-                showNotification(`Tachometr musí být > ${logs[0].odometer} km`);
-                Logger.warn('Refuel', 'Odometer not increasing', {
-                    newOdo: odo,
-                    lastOdo: logs[0].odometer
-                });
-                return;
+        // 3. Odo Logic check - validate also during edit
+        const logs = DataManager.getRefuels(vehicleId);
+        if (logs.length > 0) {
+            if (id) {
+                // Edit mode - check that odometer fits between prev and next refuels
+                const currentIndex = logs.findIndex(r => r.id === id);
+                if (currentIndex !== -1) {
+                    // Check previous refuel (older - higher index in sorted array)
+                    const prevRefuel = logs[currentIndex + 1];
+                    const nextRefuel = currentIndex > 0 ? logs[currentIndex - 1] : null;
+
+                    if (prevRefuel && odo <= prevRefuel.odometer) {
+                        showNotification(`Tachometr musí být > ${prevRefuel.odometer} km (předchozí tankování)`);
+                        Logger.warn('Refuel', 'Odometer must be greater than previous', {
+                            newOdo: odo,
+                            prevOdo: prevRefuel.odometer
+                        });
+                        return;
+                    }
+
+                    if (nextRefuel && odo >= nextRefuel.odometer) {
+                        showNotification(`Tachometr musí být < ${nextRefuel.odometer} km (následující tankování)`);
+                        Logger.warn('Refuel', 'Odometer must be less than next', {
+                            newOdo: odo,
+                            nextOdo: nextRefuel.odometer
+                        });
+                        return;
+                    }
+                }
+            } else {
+                // Add mode - new refuel must have higher odometer than latest
+                if (odo <= logs[0].odometer) {
+                    showNotification(`Tachometr musí být > ${logs[0].odometer} km`);
+                    Logger.warn('Refuel', 'Odometer not increasing', {
+                        newOdo: odo,
+                        lastOdo: logs[0].odometer
+                    });
+                    return;
+                }
             }
         }
 
@@ -841,23 +916,25 @@ function renderGarage() {
                     <span class="material-symbols-outlined">add</span> Nové
                 </button>
             </div>
-            
-            ${vehicles.map(v => `
-                <div class="car-item ${v.id === activeId ? 'active-car' : ''}" onclick="switchVehicle('${v.id}')">
+
+            ${vehicles.map(v => {
+                const safeId = escapeHtml(v.id);
+                return `
+                <div class="car-item ${v.id === activeId ? 'active-car' : ''}" onclick="switchVehicle('${safeId}')">
                     <div>
                         <div style="font-weight: 500; display: flex; align-items: center; gap: 8px;">
-                            ${v.name}
+                            ${escapeHtml(v.name)}
                             ${v.id === activeId ? '<span class="material-symbols-outlined" style="font-size: 18px; color: var(--md-sys-color-primary);">check_circle</span>' : ''}
                         </div>
                         <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
-                            ${v.manufacturer} ${v.type} • ${v.engine}
+                            ${escapeHtml(v.manufacturer)} ${escapeHtml(v.type)} • ${escapeHtml(v.engine)}
                         </div>
                     </div>
-                    <button class="button text-button" onclick="event.stopPropagation(); deleteCar('${v.id}')">
+                    <button class="button text-button" onclick="event.stopPropagation(); deleteCar('${safeId}')">
                         <span class="material-symbols-outlined" style="color: var(--md-sys-color-error);">delete</span>
                     </button>
                 </div>
-            `).join('')}
+            `}).join('')}
         </div>
     `;
     document.getElementById('mainContent').innerHTML = content;
@@ -870,6 +947,7 @@ function renderService(vehicle) {
     const expired = DataManager.getExpiredServices(vehicle.id);
     const costs = DataManager.calculateServiceCosts(vehicle.id);
     const currency = DataManager.state.settings.currency;
+    const safeCurrency = escapeHtml(currency);
 
     // Group services by type for display
     const serviceTypes = {
@@ -900,8 +978,8 @@ function renderService(vehicle) {
                 ${expired.map(s => `
                     <div class="log-item" style="border-left: 3px solid var(--md-sys-color-error); padding-left: 12px; margin-bottom: 8px;">
                         <div>
-                            <div class="log-main" style="color: var(--md-sys-color-error);">VYPRŠELO: ${s.description}</div>
-                            <div class="log-sub">Platnost do: ${formatDate(s.validUntil)}</div>
+                            <div class="log-main" style="color: var(--md-sys-color-error);">VYPRŠELO: ${escapeHtml(s.description)}</div>
+                            <div class="log-sub">Platnost do: ${escapeHtml(formatDate(s.validUntil))}</div>
                         </div>
                     </div>
                 `).join('')}
@@ -910,8 +988,8 @@ function renderService(vehicle) {
                     return `
                     <div class="log-item" style="border-left: 3px solid #ff9800; padding-left: 12px; margin-bottom: 8px;">
                         <div>
-                            <div class="log-main" style="color: #ff9800;">Brzy vyprší: ${s.description}</div>
-                            <div class="log-sub">Zbývá ${daysLeft} dní (do ${formatDate(s.validUntil)})</div>
+                            <div class="log-main" style="color: #ff9800;">Brzy vyprší: ${escapeHtml(s.description)}</div>
+                            <div class="log-sub">Zbývá ${escapeHtml(daysLeft)} dní (do ${escapeHtml(formatDate(s.validUntil))})</div>
                         </div>
                     </div>
                 `}).join('')}
@@ -928,20 +1006,20 @@ function renderService(vehicle) {
             </h3>
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value">${costs.total.toLocaleString('cs-CZ')}</div>
-                    <div class="stat-label">Celkem (${currency})</div>
+                    <div class="stat-value">${escapeHtml(costs.total.toLocaleString('cs-CZ'))}</div>
+                    <div class="stat-label">Celkem (${safeCurrency})</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${costs.count}</div>
+                    <div class="stat-value">${escapeHtml(costs.count)}</div>
                     <div class="stat-label">Záznamů</div>
                 </div>
             </div>
             <div style="margin-top: 12px; font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
-                ${costs.byType.service > 0 ? `<div>Servis/Opravy: ${costs.byType.service.toLocaleString('cs-CZ')} ${currency}</div>` : ''}
-                ${costs.byType.vignette > 0 ? `<div>Dálniční známky: ${costs.byType.vignette.toLocaleString('cs-CZ')} ${currency}</div>` : ''}
-                ${costs.byType.insurance > 0 ? `<div>Pojištění: ${costs.byType.insurance.toLocaleString('cs-CZ')} ${currency}</div>` : ''}
-                ${costs.byType.inspection > 0 ? `<div>STK/Emise: ${costs.byType.inspection.toLocaleString('cs-CZ')} ${currency}</div>` : ''}
-                ${costs.byType.other > 0 ? `<div>Ostatní: ${costs.byType.other.toLocaleString('cs-CZ')} ${currency}</div>` : ''}
+                ${costs.byType.service > 0 ? `<div>Servis/Opravy: ${escapeHtml(costs.byType.service.toLocaleString('cs-CZ'))} ${safeCurrency}</div>` : ''}
+                ${costs.byType.vignette > 0 ? `<div>Dálniční známky: ${escapeHtml(costs.byType.vignette.toLocaleString('cs-CZ'))} ${safeCurrency}</div>` : ''}
+                ${costs.byType.insurance > 0 ? `<div>Pojištění: ${escapeHtml(costs.byType.insurance.toLocaleString('cs-CZ'))} ${safeCurrency}</div>` : ''}
+                ${costs.byType.inspection > 0 ? `<div>STK/Emise: ${escapeHtml(costs.byType.inspection.toLocaleString('cs-CZ'))} ${safeCurrency}</div>` : ''}
+                ${costs.byType.other > 0 ? `<div>Ostatní: ${escapeHtml(costs.byType.other.toLocaleString('cs-CZ'))} ${safeCurrency}</div>` : ''}
             </div>
         </div>
     `;
@@ -978,7 +1056,7 @@ function renderService(vehicle) {
             <div class="card-header">
                 <h2 class="card-title">
                     <span class="material-symbols-outlined">build</span>
-                    Servis - ${vehicle.name}
+                    Servis - ${escapeHtml(vehicle.name)}
                 </h2>
             </div>
         </div>
@@ -994,9 +1072,11 @@ function renderService(vehicle) {
 function createServiceItem(service, currency) {
     const hasValidity = service.validUntil;
     const isExpired = hasValidity && new Date(service.validUntil) < new Date();
+    const safeId = escapeHtml(service.id);
+    const safeCurrency = escapeHtml(currency);
 
     return `
-        <div class="swipe-container service-item" id="service-${service.id}" data-id="${service.id}">
+        <div class="swipe-container service-item" id="service-${safeId}" data-id="${safeId}">
             <div class="swipe-actions-left">
                 <span class="material-symbols-outlined">edit</span>
             </div>
@@ -1005,75 +1085,99 @@ function createServiceItem(service, currency) {
             </div>
             <div class="swipe-content log-item">
                 <div style="flex: 1;">
-                    <div class="log-main" ${isExpired ? 'style="color: var(--md-sys-color-error);"' : ''}>${service.description}</div>
+                    <div class="log-main" ${isExpired ? 'style="color: var(--md-sys-color-error);"' : ''}>${escapeHtml(service.description)}</div>
                     <div class="log-sub">
-                        ${formatDate(service.date)}
-                        ${service.odometer ? ` • ${service.odometer} km` : ''}
-                        ${hasValidity ? ` • Platí do: ${formatDate(service.validUntil)}` : ''}
+                        ${escapeHtml(formatDate(service.date))}
+                        ${service.odometer ? ` • ${escapeHtml(service.odometer)} km` : ''}
+                        ${hasValidity ? ` • Platí do: ${escapeHtml(formatDate(service.validUntil))}` : ''}
                     </div>
-                    ${service.note ? `<div class="log-sub" style="font-style: italic;">${service.note}</div>` : ''}
+                    ${service.note ? `<div class="log-sub" style="font-style: italic;">${escapeHtml(service.note)}</div>` : ''}
                 </div>
                 <div>
-                    <div class="log-value">${service.cost ? service.cost.toLocaleString('cs-CZ') : '0'} ${currency}</div>
+                    <div class="log-value">${service.cost ? escapeHtml(service.cost.toLocaleString('cs-CZ')) : '0'} ${safeCurrency}</div>
                 </div>
             </div>
         </div>
     `;
 }
 
+// Global service swipe state
+const serviceSwipeState = {
+    isDragging: false,
+    startX: 0,
+    currentX: 0,
+    activeContent: null,
+    activeId: null
+};
+
+let serviceSwipeHandlersInitialized = false;
+
+function initServiceSwipeHandlers() {
+    if (serviceSwipeHandlersInitialized) return;
+    serviceSwipeHandlersInitialized = true;
+
+    window.addEventListener('mousemove', (e) => {
+        if (!serviceSwipeState.isDragging || !serviceSwipeState.activeContent) return;
+        serviceSwipeState.currentX = e.clientX - serviceSwipeState.startX;
+        if (serviceSwipeState.currentX > 100) serviceSwipeState.currentX = 100;
+        if (serviceSwipeState.currentX < -100) serviceSwipeState.currentX = -100;
+        serviceSwipeState.activeContent.style.transform = `translateX(${serviceSwipeState.currentX}px)`;
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (serviceSwipeState.isDragging && serviceSwipeState.activeContent) {
+            serviceSwipeState.isDragging = false;
+            serviceSwipeState.activeContent.style.transition = 'transform 0.2s ease-out';
+            handleServiceSwipeEnd(serviceSwipeState.activeContent, serviceSwipeState.currentX, serviceSwipeState.activeId);
+            serviceSwipeState.currentX = 0;
+            serviceSwipeState.activeContent = null;
+            serviceSwipeState.activeId = null;
+        }
+    });
+}
+
 function attachServiceSwipeListeners() {
-    const items = document.querySelectorAll('.service-item');
+    initServiceSwipeHandlers();
+
+    const items = document.querySelectorAll('.service-item:not([data-swipe-initialized])');
     items.forEach(item => {
-        let startX = 0;
-        let currentX = 0;
-        let isDragging = false;
+        item.setAttribute('data-swipe-initialized', 'true');
 
         const content = item.querySelector('.swipe-content');
         const id = item.dataset.id;
 
         content.addEventListener('touchstart', (e) => {
-            startX = e.touches[0].clientX;
-            isDragging = true;
+            serviceSwipeState.startX = e.touches[0].clientX;
+            serviceSwipeState.isDragging = true;
+            serviceSwipeState.activeContent = content;
+            serviceSwipeState.activeId = id;
             content.style.transition = 'none';
         });
 
         content.addEventListener('touchmove', (e) => {
-            if (!isDragging) return;
-            currentX = e.touches[0].clientX - startX;
-            if (currentX > 100) currentX = 100;
-            if (currentX < -100) currentX = -100;
-            content.style.transform = `translateX(${currentX}px)`;
+            if (!serviceSwipeState.isDragging || serviceSwipeState.activeContent !== content) return;
+            serviceSwipeState.currentX = e.touches[0].clientX - serviceSwipeState.startX;
+            if (serviceSwipeState.currentX > 100) serviceSwipeState.currentX = 100;
+            if (serviceSwipeState.currentX < -100) serviceSwipeState.currentX = -100;
+            content.style.transform = `translateX(${serviceSwipeState.currentX}px)`;
         });
 
         content.addEventListener('touchend', () => {
-            isDragging = false;
+            if (serviceSwipeState.activeContent !== content) return;
+            serviceSwipeState.isDragging = false;
             content.style.transition = 'transform 0.2s ease-out';
-            handleServiceSwipeEnd(content, currentX, id);
-            currentX = 0;
+            handleServiceSwipeEnd(content, serviceSwipeState.currentX, id);
+            serviceSwipeState.currentX = 0;
+            serviceSwipeState.activeContent = null;
+            serviceSwipeState.activeId = null;
         });
 
-        // Mouse events for desktop
         content.addEventListener('mousedown', (e) => {
-            startX = e.clientX;
-            isDragging = true;
+            serviceSwipeState.startX = e.clientX;
+            serviceSwipeState.isDragging = true;
+            serviceSwipeState.activeContent = content;
+            serviceSwipeState.activeId = id;
             content.style.transition = 'none';
-        });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            currentX = e.clientX - startX;
-            if (currentX > 100) currentX = 100;
-            if (currentX < -100) currentX = -100;
-            content.style.transform = `translateX(${currentX}px)`;
-        });
-
-        window.addEventListener('mouseup', () => {
-            if (isDragging) {
-                isDragging = false;
-                content.style.transition = 'transform 0.2s ease-out';
-                handleServiceSwipeEnd(content, currentX, id);
-                currentX = 0;
-            }
         });
     });
 }
@@ -1382,15 +1486,27 @@ function renderSettings() {
 // === Chart (SVG Construction) ===
 function renderLineChart(dataPoints) {
     // dataPoints = [{date, value}, ...]
-    if (!dataPoints || dataPoints.length < 2) {
+    if (!dataPoints || !Array.isArray(dataPoints) || dataPoints.length < 2) {
+        return '<div style="display:flex; align-items:center; justify-content:center; height:100%; color: var(--md-sys-color-outline);">Málo dat pro graf</div>';
+    }
+
+    // Filter out invalid data points
+    const validPoints = dataPoints.filter(d => d && typeof d.value === 'number' && !isNaN(d.value) && isFinite(d.value));
+
+    if (validPoints.length < 2) {
         return '<div style="display:flex; align-items:center; justify-content:center; height:100%; color: var(--md-sys-color-outline);">Málo dat pro graf</div>';
     }
 
     // Limits
-    const values = dataPoints.map(d => d.value);
+    const values = validPoints.map(d => d.value);
     const minVal = Math.min(...values) * 0.9;
     const maxVal = Math.max(...values) * 1.1;
-    const range = maxVal - minVal;
+    let range = maxVal - minVal;
+
+    // Prevent division by zero - if all values are the same, use a default range
+    if (range === 0 || !isFinite(range)) {
+        range = 1;
+    }
 
     const width = 600;
     const height = 200;
@@ -1398,8 +1514,8 @@ function renderLineChart(dataPoints) {
 
     let points = "";
 
-    dataPoints.forEach((pt, i) => {
-        const x = padding + (i / (dataPoints.length - 1)) * (width - 2 * padding);
+    validPoints.forEach((pt, i) => {
+        const x = padding + (i / (validPoints.length - 1)) * (width - 2 * padding);
         const y = height - (padding + ((pt.value - minVal) / range) * (height - 2 * padding));
         points += `${x},${y} `;
     });
@@ -1415,16 +1531,16 @@ function renderLineChart(dataPoints) {
             </defs>
             <!-- Grid Lines -->
             <line x1="${padding}" y1="${height / 2}" x2="${width - padding}" y2="${height / 2}" stroke="var(--md-sys-color-outline-variant)" stroke-dasharray="4" />
-            
+
             <!-- Area Fill (Closed Loop) -->
             <polyline points="${padding},${height} ${points} ${width - padding},${height}" fill="url(#grad)" stroke="none" />
-            
+
             <!-- Line -->
             <polyline points="${points}" fill="none" stroke="var(--md-sys-color-primary)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-            
+
             <!-- Points -->
-            ${dataPoints.map((pt, i) => {
-        const x = padding + (i / (dataPoints.length - 1)) * (width - 2 * padding);
+            ${validPoints.map((pt, i) => {
+        const x = padding + (i / (validPoints.length - 1)) * (width - 2 * padding);
         const y = height - (padding + ((pt.value - minVal) / range) * (height - 2 * padding));
         return `<circle cx="${x}" cy="${y}" r="4" fill="var(--md-sys-color-surface)" stroke="var(--md-sys-color-primary)" stroke-width="2" />`;
     }).join('')}
@@ -1450,16 +1566,30 @@ function closeModal(id) {
 }
 
 function saveCar() {
-    const name = document.getElementById('carName').value;
-    const maker = document.getElementById('carMaker').value;
-    const type = document.getElementById('carType').value;
-    const engine = document.getElementById('carEngine').value;
-    const tank = document.getElementById('carTank').value;
+    const name = document.getElementById('carName').value.trim();
+    const maker = document.getElementById('carMaker').value.trim();
+    const type = document.getElementById('carType').value.trim();
+    const engine = document.getElementById('carEngine').value.trim();
+    const tankStr = document.getElementById('carTank').value;
     const id = document.getElementById('carId').value;
 
     if (!name) {
-        showNotification('Zadejte název aut.');
+        showNotification('Zadejte název auta.');
         return;
+    }
+
+    // Validate tank size
+    let tankSize = null;
+    if (tankStr) {
+        tankSize = parseInt(tankStr);
+        if (isNaN(tankSize) || tankSize < 1) {
+            showNotification('Zadejte platný objem nádrže (min. 1 l).');
+            return;
+        }
+        if (tankSize > 500) {
+            showNotification('Objem nádrže je příliš velký (max. 500 l).');
+            return;
+        }
     }
 
     DataManager.saveVehicle({
@@ -1468,7 +1598,7 @@ function saveCar() {
         manufacturer: maker,
         type,
         engine,
-        tankSize: tank,
+        tankSize: tankSize,
         isDefault: false
     });
 
