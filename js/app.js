@@ -209,10 +209,13 @@ function switchTab(tabName, event) {
     // Show/Hide FAB
     if (tabName === 'dashboard' || tabName === 'refuel') {
         fab.style.display = 'flex';
-        // Re-bind click to open modal
         const btn = fab.querySelector('.fab-main');
         btn.onclick = () => openRefuelModal();
-        // Change icon to Add if it was something else
+        btn.innerHTML = '<span class="material-symbols-outlined">add</span>';
+    } else if (tabName === 'service') {
+        fab.style.display = 'flex';
+        const btn = fab.querySelector('.fab-main');
+        btn.onclick = () => openServiceModal();
         btn.innerHTML = '<span class="material-symbols-outlined">add</span>';
     } else {
         fab.style.display = 'none';
@@ -241,6 +244,9 @@ function switchTab(tabName, event) {
             break;
         case 'stats':
             renderStats(activeVehicle);
+            break;
+        case 'service':
+            renderService(activeVehicle);
             break;
         case 'garage':
             renderGarage();
@@ -733,20 +739,22 @@ function deleteRefuel(id) {
 
 function renderStats(vehicle) {
     const stats = DataManager.calculateStats(vehicle.id);
+    const serviceCosts = DataManager.calculateServiceCosts(vehicle.id);
     const currency = DataManager.state.settings.currency;
 
-    if (!stats) {
-        document.getElementById('mainContent').innerHTML = `<div class="card"><p>Nedostatek dat pro statistiku.</p></div>`;
-        return;
-    }
+    // Calculate total costs (fuel + service)
+    const fuelCost = stats ? parseFloat(stats.totalCost) : 0;
+    const totalCost = fuelCost + serviceCosts.total;
 
     const content = `
-        <div class="card">
+        <div class="card" style="margin-bottom: 16px;">
             <h2 class="card-title" style="margin-bottom: 20px;">
                 <span class="material-symbols-outlined">equalizer</span>
                 Podrobné statistiky
             </h2>
 
+            ${stats ? `
+            <h3 style="font-size: 1rem; margin: 16px 0 12px; color: var(--md-sys-color-primary);">Spotřeba paliva</h3>
             <div class="stats-grid">
                 <div class="stat-card">
                     <div class="stat-value" style="color: var(--md-sys-color-success);">${stats.minCons}</div>
@@ -758,11 +766,49 @@ function renderStats(vehicle) {
                 </div>
             </div>
 
-            <h3 style="font-size: 1rem; margin: 16px 0 12px;">Sezónní spotřeba</h3>
+            <h3 style="font-size: 1rem; margin: 16px 0 12px; color: var(--md-sys-color-primary);">Sezónní spotřeba</h3>
             ${renderSeasonStat('Jaro', stats.seasonal.spring, currency)}
             ${renderSeasonStat('Léto', stats.seasonal.summer, currency)}
             ${renderSeasonStat('Podzim', stats.seasonal.autumn, currency)}
             ${renderSeasonStat('Zima', stats.seasonal.winter, currency)}
+            ` : '<p style="color: var(--md-sys-color-outline);">Nedostatek dat pro statistiku spotřeby.</p>'}
+        </div>
+
+        <div class="card">
+            <h3 style="font-size: 1rem; margin-bottom: 16px; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined">payments</span>
+                Celkové náklady
+            </h3>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value">${totalCost.toLocaleString('cs-CZ')}</div>
+                    <div class="stat-label">Celkem (${currency})</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${fuelCost.toLocaleString('cs-CZ')}</div>
+                    <div class="stat-label">Palivo (${currency})</div>
+                </div>
+            </div>
+            <div class="stats-grid" style="margin-top: 12px;">
+                <div class="stat-card">
+                    <div class="stat-value">${serviceCosts.total.toLocaleString('cs-CZ')}</div>
+                    <div class="stat-label">Servis (${currency})</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${serviceCosts.count}</div>
+                    <div class="stat-label">Servisních záznamů</div>
+                </div>
+            </div>
+            ${serviceCosts.total > 0 ? `
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--md-sys-color-outline-variant);">
+                <h4 style="font-size: 0.9rem; margin-bottom: 8px; color: var(--md-sys-color-on-surface-variant);">Rozpis servisních nákladů:</h4>
+                ${serviceCosts.byType.service > 0 ? `<div class="log-item"><span>Servis / Opravy</span><span>${serviceCosts.byType.service.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
+                ${serviceCosts.byType.vignette > 0 ? `<div class="log-item"><span>Dálniční známky</span><span>${serviceCosts.byType.vignette.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
+                ${serviceCosts.byType.insurance > 0 ? `<div class="log-item"><span>Pojištění</span><span>${serviceCosts.byType.insurance.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
+                ${serviceCosts.byType.inspection > 0 ? `<div class="log-item"><span>STK / Emise</span><span>${serviceCosts.byType.inspection.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
+                ${serviceCosts.byType.other > 0 ? `<div class="log-item"><span>Ostatní</span><span>${serviceCosts.byType.other.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
+            </div>
+            ` : ''}
         </div>
     `;
     document.getElementById('mainContent').innerHTML = content;
@@ -815,6 +861,360 @@ function renderGarage() {
         </div>
     `;
     document.getElementById('mainContent').innerHTML = content;
+}
+
+// === Service Tab ===
+function renderService(vehicle) {
+    const services = DataManager.getServices(vehicle.id);
+    const expiring = DataManager.getExpiringServices(vehicle.id, 30);
+    const expired = DataManager.getExpiredServices(vehicle.id);
+    const costs = DataManager.calculateServiceCosts(vehicle.id);
+    const currency = DataManager.state.settings.currency;
+
+    // Group services by type for display
+    const serviceTypes = {
+        service: { label: 'Servis / Opravy', icon: 'build', items: [] },
+        vignette: { label: 'Dálniční známky', icon: 'toll', items: [] },
+        insurance: { label: 'Pojištění', icon: 'security', items: [] },
+        inspection: { label: 'STK / Emise', icon: 'verified', items: [] },
+        other: { label: 'Ostatní', icon: 'more_horiz', items: [] }
+    };
+
+    services.forEach(s => {
+        if (serviceTypes[s.type]) {
+            serviceTypes[s.type].items.push(s);
+        } else {
+            serviceTypes.other.items.push(s);
+        }
+    });
+
+    // Alerts section
+    let alertsHtml = '';
+    if (expired.length > 0 || expiring.length > 0) {
+        alertsHtml = `
+            <div class="card" style="margin-bottom: 16px; border-left: 4px solid var(--md-sys-color-error);">
+                <h3 style="font-size: 1rem; margin-bottom: 12px; color: var(--md-sys-color-error); display: flex; align-items: center; gap: 8px;">
+                    <span class="material-symbols-outlined">warning</span>
+                    Upozornění
+                </h3>
+                ${expired.map(s => `
+                    <div class="log-item" style="border-left: 3px solid var(--md-sys-color-error); padding-left: 12px; margin-bottom: 8px;">
+                        <div>
+                            <div class="log-main" style="color: var(--md-sys-color-error);">VYPRŠELO: ${s.description}</div>
+                            <div class="log-sub">Platnost do: ${formatDate(s.validUntil)}</div>
+                        </div>
+                    </div>
+                `).join('')}
+                ${expiring.map(s => {
+                    const daysLeft = Math.ceil((new Date(s.validUntil) - new Date()) / (1000 * 60 * 60 * 24));
+                    return `
+                    <div class="log-item" style="border-left: 3px solid #ff9800; padding-left: 12px; margin-bottom: 8px;">
+                        <div>
+                            <div class="log-main" style="color: #ff9800;">Brzy vyprší: ${s.description}</div>
+                            <div class="log-sub">Zbývá ${daysLeft} dní (do ${formatDate(s.validUntil)})</div>
+                        </div>
+                    </div>
+                `}).join('')}
+            </div>
+        `;
+    }
+
+    // Costs summary
+    const costsHtml = `
+        <div class="card" style="margin-bottom: 16px;">
+            <h3 style="font-size: 1rem; margin-bottom: 12px; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined">payments</span>
+                Celkové náklady na servis
+            </h3>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value">${costs.total.toLocaleString('cs-CZ')}</div>
+                    <div class="stat-label">Celkem (${currency})</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${costs.count}</div>
+                    <div class="stat-label">Záznamů</div>
+                </div>
+            </div>
+            <div style="margin-top: 12px; font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
+                ${costs.byType.service > 0 ? `<div>Servis/Opravy: ${costs.byType.service.toLocaleString('cs-CZ')} ${currency}</div>` : ''}
+                ${costs.byType.vignette > 0 ? `<div>Dálniční známky: ${costs.byType.vignette.toLocaleString('cs-CZ')} ${currency}</div>` : ''}
+                ${costs.byType.insurance > 0 ? `<div>Pojištění: ${costs.byType.insurance.toLocaleString('cs-CZ')} ${currency}</div>` : ''}
+                ${costs.byType.inspection > 0 ? `<div>STK/Emise: ${costs.byType.inspection.toLocaleString('cs-CZ')} ${currency}</div>` : ''}
+                ${costs.byType.other > 0 ? `<div>Ostatní: ${costs.byType.other.toLocaleString('cs-CZ')} ${currency}</div>` : ''}
+            </div>
+        </div>
+    `;
+
+    // Services list
+    let servicesListHtml = '';
+    Object.keys(serviceTypes).forEach(type => {
+        const group = serviceTypes[type];
+        if (group.items.length > 0) {
+            servicesListHtml += `
+                <div class="card" style="margin-bottom: 16px;">
+                    <h3 style="font-size: 1rem; margin-bottom: 12px; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
+                        <span class="material-symbols-outlined">${group.icon}</span>
+                        ${group.label}
+                    </h3>
+                    ${group.items.map(s => createServiceItem(s, currency)).join('')}
+                </div>
+            `;
+        }
+    });
+
+    if (services.length === 0) {
+        servicesListHtml = `
+            <div class="card" style="text-align: center; padding: 40px 20px;">
+                <span class="material-symbols-outlined" style="font-size: 48px; color: var(--md-sys-color-outline);">build</span>
+                <h3>Žádné servisní záznamy</h3>
+                <p style="color: var(--md-sys-color-on-surface-variant);">Přidejte první záznam kliknutím na +</p>
+            </div>
+        `;
+    }
+
+    const content = `
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <span class="material-symbols-outlined">build</span>
+                    Servis - ${vehicle.name}
+                </h2>
+            </div>
+        </div>
+        ${alertsHtml}
+        ${costsHtml}
+        ${servicesListHtml}
+    `;
+
+    document.getElementById('mainContent').innerHTML = content;
+    attachServiceSwipeListeners();
+}
+
+function createServiceItem(service, currency) {
+    const hasValidity = service.validUntil;
+    const isExpired = hasValidity && new Date(service.validUntil) < new Date();
+
+    return `
+        <div class="swipe-container service-item" id="service-${service.id}" data-id="${service.id}">
+            <div class="swipe-actions-left">
+                <span class="material-symbols-outlined">edit</span>
+            </div>
+            <div class="swipe-actions-right">
+                <span class="material-symbols-outlined">delete</span>
+            </div>
+            <div class="swipe-content log-item">
+                <div style="flex: 1;">
+                    <div class="log-main" ${isExpired ? 'style="color: var(--md-sys-color-error);"' : ''}>${service.description}</div>
+                    <div class="log-sub">
+                        ${formatDate(service.date)}
+                        ${service.odometer ? ` • ${service.odometer} km` : ''}
+                        ${hasValidity ? ` • Platí do: ${formatDate(service.validUntil)}` : ''}
+                    </div>
+                    ${service.note ? `<div class="log-sub" style="font-style: italic;">${service.note}</div>` : ''}
+                </div>
+                <div>
+                    <div class="log-value">${service.cost ? service.cost.toLocaleString('cs-CZ') : '0'} ${currency}</div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function attachServiceSwipeListeners() {
+    const items = document.querySelectorAll('.service-item');
+    items.forEach(item => {
+        let startX = 0;
+        let currentX = 0;
+        let isDragging = false;
+
+        const content = item.querySelector('.swipe-content');
+        const id = item.dataset.id;
+
+        content.addEventListener('touchstart', (e) => {
+            startX = e.touches[0].clientX;
+            isDragging = true;
+            content.style.transition = 'none';
+        });
+
+        content.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            currentX = e.touches[0].clientX - startX;
+            if (currentX > 100) currentX = 100;
+            if (currentX < -100) currentX = -100;
+            content.style.transform = `translateX(${currentX}px)`;
+        });
+
+        content.addEventListener('touchend', () => {
+            isDragging = false;
+            content.style.transition = 'transform 0.2s ease-out';
+            handleServiceSwipeEnd(content, currentX, id);
+            currentX = 0;
+        });
+
+        // Mouse events for desktop
+        content.addEventListener('mousedown', (e) => {
+            startX = e.clientX;
+            isDragging = true;
+            content.style.transition = 'none';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            currentX = e.clientX - startX;
+            if (currentX > 100) currentX = 100;
+            if (currentX < -100) currentX = -100;
+            content.style.transform = `translateX(${currentX}px)`;
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                content.style.transition = 'transform 0.2s ease-out';
+                handleServiceSwipeEnd(content, currentX, id);
+                currentX = 0;
+            }
+        });
+    });
+}
+
+function handleServiceSwipeEnd(element, distance, id) {
+    if (distance > 50) {
+        element.style.transform = 'translateX(0px)';
+        openServiceModal(id);
+    } else if (distance < -50) {
+        element.style.transform = 'translateX(0px)';
+        deleteServiceRecord(id);
+    } else {
+        element.style.transform = 'translateX(0px)';
+    }
+}
+
+function openServiceModal(editId = null) {
+    const activeVehicle = DataManager.getActiveVehicle();
+    if (!activeVehicle) {
+        showNotification('Vyberte nejprve vozidlo!');
+        return;
+    }
+
+    const modalTitle = document.getElementById('serviceModalTitle');
+    document.getElementById('serviceVehicleId').value = activeVehicle.id;
+
+    if (editId) {
+        const service = DataManager.getService(editId);
+        if (!service) return;
+
+        modalTitle.textContent = 'Upravit záznam';
+        document.getElementById('serviceId').value = service.id;
+        document.getElementById('serviceType').value = service.type || 'service';
+        document.getElementById('serviceDate').value = service.date;
+        document.getElementById('serviceValidUntil').value = service.validUntil || '';
+        document.getElementById('serviceDescription').value = service.description || '';
+        document.getElementById('serviceOdometer').value = service.odometer || '';
+        document.getElementById('serviceCost').value = service.cost || '';
+        document.getElementById('serviceNote').value = service.note || '';
+    } else {
+        modalTitle.textContent = 'Nový servisní záznam';
+        document.getElementById('serviceId').value = '';
+        document.getElementById('serviceType').value = 'service';
+        document.getElementById('serviceDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('serviceValidUntil').value = '';
+        document.getElementById('serviceDescription').value = '';
+        document.getElementById('serviceOdometer').value = '';
+        document.getElementById('serviceCost').value = '';
+        document.getElementById('serviceNote').value = '';
+    }
+
+    onServiceTypeChange();
+    document.getElementById('serviceModal').classList.add('active');
+}
+
+function onServiceTypeChange() {
+    const type = document.getElementById('serviceType').value;
+    const validUntilGroup = document.getElementById('serviceValidUntilGroup');
+    const odoGroup = document.getElementById('serviceOdoGroup');
+
+    // Show validity field for items that expire
+    if (type === 'vignette' || type === 'insurance' || type === 'inspection') {
+        validUntilGroup.style.display = 'block';
+    } else {
+        validUntilGroup.style.display = 'none';
+    }
+
+    // Odometer is optional for all but more relevant for service/inspection
+    odoGroup.style.display = 'block';
+}
+
+function saveServiceRecord() {
+    try {
+        const id = document.getElementById('serviceId').value;
+        const vehicleId = document.getElementById('serviceVehicleId').value;
+        const type = document.getElementById('serviceType').value;
+        const date = document.getElementById('serviceDate').value;
+        const validUntil = document.getElementById('serviceValidUntil').value;
+        const description = document.getElementById('serviceDescription').value;
+        const odometer = document.getElementById('serviceOdometer').value;
+        const cost = document.getElementById('serviceCost').value;
+        const note = document.getElementById('serviceNote').value;
+
+        if (!date) {
+            showNotification('Zadejte datum');
+            return;
+        }
+
+        if (!description) {
+            showNotification('Zadejte popis záznamu');
+            return;
+        }
+
+        const data = {
+            id: id || null,
+            vehicleId,
+            type,
+            date,
+            validUntil: validUntil || null,
+            description,
+            odometer: odometer ? parseInt(odometer) : null,
+            cost: cost ? parseFloat(cost) : 0,
+            note: note || ''
+        };
+
+        let success = false;
+        if (id) {
+            success = DataManager.updateService(data);
+            if (success) showNotification('Záznam upraven');
+        } else {
+            const result = DataManager.addService(data);
+            success = result !== null;
+            if (success) showNotification('Záznam přidán');
+        }
+
+        if (!success) {
+            showNotification('Chyba při ukládání');
+            return;
+        }
+
+        closeModal('serviceModal');
+        renderService(DataManager.getActiveVehicle());
+    } catch (e) {
+        Logger.error('Service', 'Failed to save service record', { error: e.message });
+        showNotification('Chyba při ukládání');
+    }
+}
+
+function deleteServiceRecord(id) {
+    if (confirm('Opravdu smazat tento záznam?')) {
+        const success = DataManager.deleteService(id);
+        if (success) {
+            showNotification('Záznam smazán');
+            const activeVehicle = DataManager.getActiveVehicle();
+            if (activeVehicle) {
+                renderService(activeVehicle);
+            }
+        } else {
+            showNotification('Chyba při mazání');
+        }
+    }
 }
 
 function renderSettings() {

@@ -1,13 +1,14 @@
 "use strict";
 
 const DataManager = {
-    DATA_VERSION: '2.2.0', // Current data structure version
+    DATA_VERSION: '2.3.0', // Current data structure version
 
     // Default State
     state: {
-        version: '2.2.0', // Data version
+        version: '2.3.0', // Data version
         vehicles: [],
         refuels: [],
+        services: [], // Service records (repairs, vignettes, insurance, etc.)
         settings: {
             darkMode: false,
             darkModeAuto: true, // Auto detect from system
@@ -34,6 +35,7 @@ const DataManager = {
                     // Ensure array initialization if corrupt
                     if (!this.state.vehicles) this.state.vehicles = [];
                     if (!this.state.refuels) this.state.refuels = [];
+                    if (!this.state.services) this.state.services = [];
 
                     // Migrate data if needed
                     this._migrateData(parsed);
@@ -78,6 +80,7 @@ const DataManager = {
             this.state = {
                 vehicles: [],
                 refuels: [],
+                services: [],
                 settings: {
                     darkMode: false,
                     darkModeAuto: true,
@@ -691,6 +694,150 @@ const DataManager = {
         }
     },
 
+    // --- Service Records Methods ---
+    getServices: function (vehicleId) {
+        if (!this.state.services) this.state.services = [];
+        return this.state.services
+            .filter(s => s.vehicleId === vehicleId)
+            .sort((a, b) => new Date(b.date) - new Date(a.date)); // Newest first
+    },
+
+    getService: function (id) {
+        if (!this.state.services) this.state.services = [];
+        return this.state.services.find(s => s.id === id);
+    },
+
+    addService: function (serviceData) {
+        try {
+            if (!this.state.services) this.state.services = [];
+
+            serviceData.id = this.generateId();
+            this.state.services.push(serviceData);
+            this.save();
+
+            Logger.info('DataManager', 'Service record added', {
+                serviceId: serviceData.id,
+                type: serviceData.type
+            });
+
+            return serviceData;
+        } catch (e) {
+            Logger.error('DataManager', 'Failed to add service record', {
+                error: e.message,
+                data: serviceData
+            });
+            return null;
+        }
+    },
+
+    updateService: function (serviceData) {
+        try {
+            if (!this.state.services) this.state.services = [];
+
+            const index = this.state.services.findIndex(s => s.id === serviceData.id);
+            if (index !== -1) {
+                this.state.services[index] = { ...this.state.services[index], ...serviceData };
+                this.save();
+                Logger.info('DataManager', 'Service record updated', { serviceId: serviceData.id });
+                return true;
+            }
+            return false;
+        } catch (e) {
+            Logger.error('DataManager', 'Failed to update service record', {
+                error: e.message,
+                data: serviceData
+            });
+            return false;
+        }
+    },
+
+    deleteService: function (id) {
+        try {
+            if (!this.state.services) this.state.services = [];
+
+            const beforeCount = this.state.services.length;
+            this.state.services = this.state.services.filter(s => s.id !== id);
+
+            if (this.state.services.length < beforeCount) {
+                this.save();
+                Logger.info('DataManager', 'Service record deleted', { serviceId: id });
+                return true;
+            }
+            return false;
+        } catch (e) {
+            Logger.error('DataManager', 'Failed to delete service record', {
+                error: e.message,
+                serviceId: id
+            });
+            return false;
+        }
+    },
+
+    // Get services expiring soon (vignettes, insurance, inspection)
+    getExpiringServices: function (vehicleId, daysAhead = 30) {
+        if (!this.state.services) this.state.services = [];
+
+        const now = new Date();
+        const futureDate = new Date();
+        futureDate.setDate(futureDate.getDate() + daysAhead);
+
+        return this.state.services
+            .filter(s => {
+                if (s.vehicleId !== vehicleId) return false;
+                if (!s.validUntil) return false;
+
+                const expiry = new Date(s.validUntil);
+                return expiry >= now && expiry <= futureDate;
+            })
+            .sort((a, b) => new Date(a.validUntil) - new Date(b.validUntil));
+    },
+
+    // Get expired services
+    getExpiredServices: function (vehicleId) {
+        if (!this.state.services) this.state.services = [];
+
+        const now = new Date();
+        return this.state.services
+            .filter(s => {
+                if (s.vehicleId !== vehicleId) return false;
+                if (!s.validUntil) return false;
+                return new Date(s.validUntil) < now;
+            })
+            .sort((a, b) => new Date(b.validUntil) - new Date(a.validUntil));
+    },
+
+    // Calculate total service costs for a vehicle
+    calculateServiceCosts: function (vehicleId) {
+        if (!this.state.services) this.state.services = [];
+
+        const services = this.state.services.filter(s => s.vehicleId === vehicleId);
+
+        let totalCost = 0;
+        let byType = {
+            service: 0,
+            vignette: 0,
+            insurance: 0,
+            inspection: 0,
+            other: 0
+        };
+
+        services.forEach(s => {
+            const cost = parseFloat(s.cost) || 0;
+            totalCost += cost;
+            if (byType.hasOwnProperty(s.type)) {
+                byType[s.type] += cost;
+            } else {
+                byType.other += cost;
+            }
+        });
+
+        return {
+            total: totalCost,
+            byType,
+            count: services.length
+        };
+    },
+
     // --- Helpers ---
     generateId: function () {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -732,6 +879,7 @@ const DataManager = {
                 version: data.version || this.DATA_VERSION,
                 vehicles: data.vehicles,
                 refuels: data.refuels,
+                services: data.services || [],
                 settings: { ...this.state.settings, ...data.settings }
             };
 

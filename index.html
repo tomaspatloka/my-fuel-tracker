@@ -56,6 +56,10 @@
                     <span class="material-symbols-outlined">bar_chart</span>
                     <span class="tab-label">Statistiky</span>
                 </button>
+                <button class="tab" onclick="switchTab('service', event)">
+                    <span class="material-symbols-outlined">build</span>
+                    <span class="tab-label">Servis</span>
+                </button>
                 <button class="tab" onclick="switchTab('garage', event)">
                     <span class="material-symbols-outlined">directions_car</span>
                     <span class="tab-label">Garáž</span>
@@ -189,6 +193,66 @@
                     style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px;">
                     <button class="button text-button" onclick="closeModal('refuelModal')">Zrušit</button>
                     <button class="button filled-button" onclick="saveRefuelFromModal()">Uložit</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal (For Adding/Editing Service Record) -->
+        <div class="modal" id="serviceModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <span class="material-symbols-outlined modal-icon">build</span>
+                    <h3 id="serviceModalTitle">Nový servisní záznam</h3>
+                </div>
+
+                <input type="hidden" id="serviceId">
+                <input type="hidden" id="serviceVehicleId">
+
+                <div class="form-group">
+                    <label class="form-label">Typ záznamu</label>
+                    <select id="serviceType" class="text-field" onchange="onServiceTypeChange()">
+                        <option value="service">Servis / Oprava</option>
+                        <option value="vignette">Dálniční známka</option>
+                        <option value="insurance">Pojištění</option>
+                        <option value="inspection">STK / Emise</option>
+                        <option value="other">Jiné</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Datum</label>
+                    <input type="date" id="serviceDate" class="text-field">
+                </div>
+
+                <div class="form-group" id="serviceValidUntilGroup" style="display: none;">
+                    <label class="form-label">Platnost do</label>
+                    <input type="date" id="serviceValidUntil" class="text-field">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Popis</label>
+                    <input type="text" id="serviceDescription" class="text-field" placeholder="Např. Výměna oleje, Povinné ručení...">
+                </div>
+
+                <div class="form-group" id="serviceOdoGroup">
+                    <label class="form-label">Stav tachometru (km)</label>
+                    <input type="number" id="serviceOdometer" class="text-field" placeholder="Volitelné">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Cena (Kč)</label>
+                    <input type="number" id="serviceCost" class="text-field" step="0.01">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Poznámka</label>
+                    <input type="text" id="serviceNote" class="text-field" placeholder="Volitelná poznámka...">
+                </div>
+
+                <div class="modal-actions"
+                    style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px;">
+                    <button class="button text-button" onclick="closeModal('serviceModal')">Zrušit</button>
+                    <button class="button filled-button" onclick="saveServiceRecord()">Uložit</button>
                 </div>
             </div>
         </div>
