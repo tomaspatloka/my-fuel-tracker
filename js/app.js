@@ -817,11 +817,15 @@ function deleteRefuel(id) {
 function renderStats(vehicle) {
     const stats = DataManager.calculateStats(vehicle.id);
     const serviceCosts = DataManager.calculateServiceCosts(vehicle.id);
+    const refuels = DataManager.getRefuels(vehicle.id);
     const currency = DataManager.state.settings.currency;
 
     // Calculate total costs (fuel + service)
     const fuelCost = stats ? parseFloat(stats.totalCost) : 0;
     const totalCost = fuelCost + serviceCosts.total;
+
+    // Calculate fuel price statistics
+    const fuelPriceStats = calculateFuelPriceStats(refuels);
 
     const content = `
         <div class="card" style="margin-bottom: 16px;">
@@ -851,7 +855,36 @@ function renderStats(vehicle) {
             ` : '<p style="color: var(--md-sys-color-outline);">Nedostatek dat pro statistiku spotřeby.</p>'}
         </div>
 
-        <div class="card">
+        <!-- Fuel Price Statistics -->
+        ${fuelPriceStats.hasData ? `
+        <div class="card" style="margin-bottom: 16px;">
+            <h3 style="font-size: 1rem; margin-bottom: 16px; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined">trending_up</span>
+                Ceny paliva
+            </h3>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--md-sys-color-success);">${fuelPriceStats.cheapest.toFixed(2)}</div>
+                    <div class="stat-label">Nejlevnější (${currency}/l)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--md-sys-color-error);">${fuelPriceStats.mostExpensive.toFixed(2)}</div>
+                    <div class="stat-label">Nejdražší (${currency}/l)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${fuelPriceStats.average.toFixed(2)}</div>
+                    <div class="stat-label">Průměr (${currency}/l)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${fuelPriceStats.last.toFixed(2)}</div>
+                    <div class="stat-label">Poslední (${currency}/l)</div>
+                </div>
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- Total Costs -->
+        <div class="card" style="margin-bottom: 16px;">
             <h3 style="font-size: 1rem; margin-bottom: 16px; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
                 <span class="material-symbols-outlined">payments</span>
                 Celkové náklady
@@ -865,8 +898,6 @@ function renderStats(vehicle) {
                     <div class="stat-value">${fuelCost.toLocaleString('cs-CZ')}</div>
                     <div class="stat-label">Palivo (${currency})</div>
                 </div>
-            </div>
-            <div class="stats-grid" style="margin-top: 12px;">
                 <div class="stat-card">
                     <div class="stat-value">${serviceCosts.total.toLocaleString('cs-CZ')}</div>
                     <div class="stat-label">Servis (${currency})</div>
@@ -876,19 +907,75 @@ function renderStats(vehicle) {
                     <div class="stat-label">Servisních záznamů</div>
                 </div>
             </div>
-            ${serviceCosts.total > 0 ? `
+        </div>
+
+        <!-- Chart: Costs Breakdown (Pie) -->
+        ${(fuelCost > 0 || serviceCosts.total > 0) ? `
+        <div class="card" style="margin-bottom: 16px;">
+            <h3 style="font-size: 1rem; margin-bottom: 16px; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined">pie_chart</span>
+                Rozdělení nákladů
+            </h3>
+            <div style="position: relative; height: 300px; max-width: 400px; margin: 0 auto;">
+                <canvas id="costsPieChart"></canvas>
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- Chart: Fuel Price Over Time -->
+        ${refuels.length >= 2 ? `
+        <div class="card" style="margin-bottom: 16px;">
+            <h3 style="font-size: 1rem; margin-bottom: 16px; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined">show_chart</span>
+                Vývoj ceny paliva
+            </h3>
+            <div style="position: relative; height: 300px;">
+                <canvas id="fuelPriceChart"></canvas>
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- Chart: Consumption Over Time -->
+        ${stats && stats.consumptions.length >= 2 ? `
+        <div class="card" style="margin-bottom: 16px;">
+            <h3 style="font-size: 1rem; margin-bottom: 16px; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined">trending_down</span>
+                Vývoj spotřeby
+            </h3>
+            <div style="position: relative; height: 300px;">
+                <canvas id="consumptionChart"></canvas>
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- Service Costs Breakdown -->
+        ${serviceCosts.total > 0 ? `
+        <div class="card" style="margin-bottom: 16px;">
+            <h3 style="font-size: 1rem; margin-bottom: 16px; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined">build</span>
+                Servisní náklady
+            </h3>
+            <div style="position: relative; height: 300px; max-width: 400px; margin: 0 auto;">
+                <canvas id="serviceCostsChart"></canvas>
+            </div>
             <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--md-sys-color-outline-variant);">
-                <h4 style="font-size: 0.9rem; margin-bottom: 8px; color: var(--md-sys-color-on-surface-variant);">Rozpis servisních nákladů:</h4>
+                <h4 style="font-size: 0.9rem; margin-bottom: 8px; color: var(--md-sys-color-on-surface-variant);">Rozpis nákladů:</h4>
                 ${serviceCosts.byType.service > 0 ? `<div class="log-item"><span>Servis / Opravy</span><span>${serviceCosts.byType.service.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
                 ${serviceCosts.byType.vignette > 0 ? `<div class="log-item"><span>Dálniční známky</span><span>${serviceCosts.byType.vignette.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
                 ${serviceCosts.byType.insurance > 0 ? `<div class="log-item"><span>Pojištění</span><span>${serviceCosts.byType.insurance.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
                 ${serviceCosts.byType.inspection > 0 ? `<div class="log-item"><span>STK / Emise</span><span>${serviceCosts.byType.inspection.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
                 ${serviceCosts.byType.other > 0 ? `<div class="log-item"><span>Ostatní</span><span>${serviceCosts.byType.other.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
             </div>
-            ` : ''}
         </div>
+        ` : ''}
     `;
+
     document.getElementById('mainContent').innerHTML = content;
+
+    // Initialize charts after DOM is ready
+    setTimeout(() => {
+        initStatsCharts(vehicle, stats, serviceCosts, refuels, currency);
+    }, 100);
 }
 
 function renderSeasonStat(name, data, currency) {
@@ -2261,5 +2348,301 @@ async function restoreFromId() {
         }
     } else {
         showNotification('Neplatné Sync ID');
+    }
+}
+
+// === Charts and Statistics Helper Functions ===
+
+/**
+ * Calculate fuel price statistics
+ */
+function calculateFuelPriceStats(refuels) {
+    if (!refuels || refuels.length === 0) {
+        return { hasData: false };
+    }
+
+    const prices = refuels.map(r => r.pricePerLiter);
+    const cheapest = Math.min(...prices);
+    const mostExpensive = Math.max(...prices);
+    const average = prices.reduce((sum, p) => sum + p, 0) / prices.length;
+    const last = refuels[0].pricePerLiter; // refuels are already sorted newest first
+
+    return {
+        hasData: true,
+        cheapest,
+        mostExpensive,
+        average,
+        last
+    };
+}
+
+/**
+ * Initialize all statistics charts
+ */
+let statsCharts = {}; // Store chart instances for cleanup
+
+function initStatsCharts(vehicle, stats, serviceCosts, refuels, currency) {
+    try {
+        Logger.info('Charts', 'Initializing statistics charts');
+
+        // Destroy existing charts to prevent memory leaks
+        Object.values(statsCharts).forEach(chart => {
+            if (chart) chart.destroy();
+        });
+        statsCharts = {};
+
+        const fuelCost = stats ? parseFloat(stats.totalCost) : 0;
+
+        // 1. Costs Pie Chart (Fuel vs Service)
+        if (fuelCost > 0 || serviceCosts.total > 0) {
+            const ctx = document.getElementById('costsPieChart');
+            if (ctx) {
+                statsCharts.costs = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Palivo', 'Servis'],
+                        datasets: [{
+                            data: [fuelCost, serviceCosts.total],
+                            backgroundColor: [
+                                'rgba(255, 152, 0, 0.8)',
+                                'rgba(33, 150, 243, 0.8)'
+                            ],
+                            borderColor: [
+                                'rgba(255, 152, 0, 1)',
+                                'rgba(33, 150, 243, 1)'
+                            ],
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 15,
+                                    font: { size: 13 }
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.parsed.toLocaleString('cs-CZ');
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                        return `${label}: ${value} ${currency} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // 2. Fuel Price Chart (Line)
+        if (refuels.length >= 2) {
+            const ctx = document.getElementById('fuelPriceChart');
+            if (ctx) {
+                // Sort refuels by date (oldest first for chart)
+                const sortedRefuels = [...refuels].reverse();
+                const labels = sortedRefuels.map(r => formatDate(r.date));
+                const prices = sortedRefuels.map(r => r.pricePerLiter);
+
+                statsCharts.fuelPrice = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: `Cena (${currency}/l)`,
+                            data: prices,
+                            borderColor: 'rgba(76, 175, 80, 1)',
+                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.parsed.y.toFixed(2)} ${currency}/l`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: false,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value.toFixed(2) + ' ' + currency;
+                                    }
+                                }
+                            },
+                            x: {
+                                ticks: {
+                                    maxRotation: 45,
+                                    minRotation: 45
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // 3. Consumption Chart (Line)
+        if (stats && stats.consumptions.length >= 2) {
+            const ctx = document.getElementById('consumptionChart');
+            if (ctx) {
+                const labels = stats.consumptions.map(c => formatDate(c.date));
+                const consumptions = stats.consumptions.map(c => c.value);
+
+                statsCharts.consumption = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Spotřeba (l/100km)',
+                            data: consumptions,
+                            borderColor: 'rgba(244, 67, 54, 1)',
+                            backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.parsed.y.toFixed(1)} l/100km`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: false,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value.toFixed(1) + ' l/100km';
+                                    }
+                                }
+                            },
+                            x: {
+                                ticks: {
+                                    maxRotation: 45,
+                                    minRotation: 45
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // 4. Service Costs Breakdown (Doughnut)
+        if (serviceCosts.total > 0) {
+            const ctx = document.getElementById('serviceCostsChart');
+            if (ctx) {
+                const labels = [];
+                const data = [];
+                const colors = [
+                    'rgba(63, 81, 181, 0.8)',
+                    'rgba(156, 39, 176, 0.8)',
+                    'rgba(0, 150, 136, 0.8)',
+                    'rgba(255, 193, 7, 0.8)',
+                    'rgba(96, 125, 139, 0.8)'
+                ];
+
+                if (serviceCosts.byType.service > 0) {
+                    labels.push('Servis / Opravy');
+                    data.push(serviceCosts.byType.service);
+                }
+                if (serviceCosts.byType.vignette > 0) {
+                    labels.push('Dálniční známky');
+                    data.push(serviceCosts.byType.vignette);
+                }
+                if (serviceCosts.byType.insurance > 0) {
+                    labels.push('Pojištění');
+                    data.push(serviceCosts.byType.insurance);
+                }
+                if (serviceCosts.byType.inspection > 0) {
+                    labels.push('STK / Emise');
+                    data.push(serviceCosts.byType.inspection);
+                }
+                if (serviceCosts.byType.other > 0) {
+                    labels.push('Ostatní');
+                    data.push(serviceCosts.byType.other);
+                }
+
+                statsCharts.serviceCosts = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: colors.slice(0, data.length),
+                            borderColor: colors.slice(0, data.length).map(c => c.replace('0.8', '1')),
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 15,
+                                    font: { size: 12 }
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.parsed.toLocaleString('cs-CZ');
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                        return `${label}: ${value} ${currency} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        Logger.info('Charts', 'Charts initialized successfully');
+    } catch (error) {
+        Logger.error('Charts', 'Failed to initialize charts', {
+            error: error.message,
+            stack: error.stack
+        });
     }
 }

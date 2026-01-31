@@ -709,3 +709,27 @@ input:checked+.slider:before {
 .update-banner .button:hover {
     background: rgba(255, 255, 255, 0.3);
 }
+
+/* === Charts === */
+.chart-container {
+    position: relative;
+    width: 100%;
+    margin: 16px 0;
+}
+
+.chart-container canvas {
+    max-width: 100%;
+    height: auto !important;
+}
+
+/* Make charts responsive on mobile */
+@media (max-width: 600px) {
+    .chart-container {
+        height: 250px;
+    }
+
+    /* Smaller padding for chart cards on mobile */
+    .card canvas {
+        padding: 8px 0;
+    }
+}
