@@ -907,10 +907,10 @@ const DataManager = {
      * Calculate consumption for each refuel record
      * Returns object: { refuelId: consumption (number or null) }
      *
-     * NEW LOGIC (v2.6.0):
-     * - Calculates consumption for ALL refuels (not just full tank)
-     * - Uses simple formula: liters / km * 100
-     * - More accurate representation of actual consumption
+     * ACCUMULATION ALGORITHM (v2.7.0) - Fuelio style:
+     * - Full tank to full tank: accurate consumption calculation
+     * - Partial refuels: accumulated and calculated when next full tank occurs
+     * - More accurate representation of real fuel consumption
      */
     calculateConsumptionForRefuels: function (vehicleId) {
         try {
@@ -928,36 +928,99 @@ const DataManager = {
             // First refuel never has consumption (no previous data)
             consumptionMap[logs[0].id] = null;
 
-            // Calculate consumption for each refuel based on previous refuel
-            for (let i = 1; i < logs.length; i++) {
+            // Find the first full tank to start calculations
+            let lastFullTankIndex = -1;
+            for (let i = 0; i < logs.length; i++) {
+                if (logs[i].isFullTank) {
+                    lastFullTankIndex = i;
+                    break;
+                }
+            }
+
+            // If no full tank found, no consumption can be calculated
+            if (lastFullTankIndex === -1) {
+                Logger.info('DataManager', 'No full tank refuels found, cannot calculate consumption', {
+                    vehicleId,
+                    refuelsCount: logs.length
+                });
+                logs.forEach(log => {
+                    consumptionMap[log.id] = null;
+                });
+                return consumptionMap;
+            }
+
+            // Process refuels from the first full tank onwards
+            for (let i = lastFullTankIndex + 1; i < logs.length; i++) {
                 const current = logs[i];
-                const previous = logs[i - 1];
 
-                // Calculate distance traveled since last refuel
-                const distance = current.odometer - previous.odometer;
+                // If current is a full tank, we can calculate consumption for the segment
+                if (current.isFullTank) {
+                    const previousFullTank = logs[lastFullTankIndex];
 
-                // Validate distance (must be positive and reasonable)
-                if (distance > 0 && distance < 5000) { // Max 5000 km between refuels (sanity check)
-                    // Simple consumption calculation:
-                    // consumption = liters / km * 100
-                    const consumption = (current.liters / distance) * 100;
+                    // Calculate distance between full tanks
+                    const distance = current.odometer - previousFullTank.odometer;
 
-                    // Additional sanity check (consumption between 1-50 l/100km)
-                    if (consumption >= 1 && consumption <= 50) {
-                        consumptionMap[current.id] = parseFloat(consumption.toFixed(1));
+                    // Accumulate all liters from previous full tank to current (inclusive)
+                    let totalLiters = 0;
+                    for (let j = lastFullTankIndex + 1; j <= i; j++) {
+                        totalLiters += parseFloat(logs[j].liters) || 0;
+                    }
+
+                    // Validate distance and calculate consumption
+                    if (distance > 0 && distance < 5000 && totalLiters > 0) {
+                        const consumption = (totalLiters / distance) * 100;
+
+                        // Sanity check (consumption between 1-50 l/100km)
+                        if (consumption >= 1 && consumption <= 50) {
+                            const consumptionValue = parseFloat(consumption.toFixed(1));
+
+                            // Assign this consumption to ALL refuels in this segment
+                            for (let j = lastFullTankIndex + 1; j <= i; j++) {
+                                consumptionMap[logs[j].id] = consumptionValue;
+                            }
+
+                            Logger.debug('DataManager', 'Consumption calculated for segment', {
+                                from: previousFullTank.odometer,
+                                to: current.odometer,
+                                distance,
+                                totalLiters,
+                                consumption: consumptionValue,
+                                refuelsInSegment: i - lastFullTankIndex
+                            });
+                        } else {
+                            // Unrealistic consumption
+                            Logger.warn('DataManager', 'Unrealistic consumption calculated for segment', {
+                                from: previousFullTank.odometer,
+                                to: current.odometer,
+                                distance,
+                                totalLiters,
+                                consumption: consumption.toFixed(1)
+                            });
+                            // Mark all refuels in segment as null
+                            for (let j = lastFullTankIndex + 1; j <= i; j++) {
+                                consumptionMap[logs[j].id] = null;
+                            }
+                        }
                     } else {
-                        // Unrealistic consumption, likely data error
-                        Logger.warn('DataManager', 'Unrealistic consumption calculated', {
-                            refuelId: current.id,
-                            consumption: consumption.toFixed(1),
+                        // Invalid data
+                        Logger.warn('DataManager', 'Invalid data for consumption segment', {
                             distance,
-                            liters: current.liters
+                            totalLiters
                         });
+                        // Mark all refuels in segment as null
+                        for (let j = lastFullTankIndex + 1; j <= i; j++) {
+                            consumptionMap[logs[j].id] = null;
+                        }
+                    }
+
+                    // Update last full tank index
+                    lastFullTankIndex = i;
+                } else {
+                    // Partial refuel - will be calculated when next full tank occurs
+                    // For now, mark as null (will be updated when full tank is found)
+                    if (!consumptionMap.hasOwnProperty(current.id)) {
                         consumptionMap[current.id] = null;
                     }
-                } else {
-                    // Invalid distance (negative, zero, or too large)
-                    consumptionMap[current.id] = null;
                 }
             }
 
@@ -965,6 +1028,7 @@ const DataManager = {
         } catch (e) {
             Logger.error('DataManager', 'Failed to calculate consumption for refuels', {
                 error: e.message,
+                stack: e.stack,
                 vehicleId
             });
             return {};

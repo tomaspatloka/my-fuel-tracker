@@ -3,25 +3,41 @@
 /**
  * Application Version
  */
-const APP_VERSION = '2.6.0';
+const APP_VERSION = '2.7.0';
 
 /**
  * Changelog - Version History
  */
 const CHANGELOG = [
     {
-        version: '2.6.0',
+        version: '2.7.0',
         date: '2026-01-31',
         changes: [
             {
                 type: 'feature',
-                title: 'Výpočet spotřeby i pro částečná tankování',
-                description: 'Spotřeba l/100km se nyní počítá i když není tankováno do plna - použit jednoduchý vzorec litry/km × 100'
+                title: 'Akumulační algoritmus výpočtu spotřeby (Fuelio style)',
+                description: 'Spotřeba se počítá od plné nádrže k plné nádrži. Částečná tankování se akumulují a spotřeba se vypočte až při dalším plném tankování.'
             },
             {
                 type: 'improvement',
-                title: 'Přesnější statistiky spotřeby',
-                description: 'Všechna tankování (nejen plná nádrž) se nyní započítávají do statistik a grafů spotřeby'
+                title: 'Přesnější výpočty spotřeby',
+                description: 'Algoritmus nyní správně sčítá všechny litry mezi plnými nádržemi a dělí celkovou vzdáleností. Odpovídá standardním fuel tracking aplikacím.'
+            },
+            {
+                type: 'fix',
+                title: 'Oprava chybného vzorce spotřeby',
+                description: 'V2.6.0 měla chybu - počítala natankované litry místo spotřebovaných. Nyní opraveno podle průmyslových standardů.'
+            }
+        ]
+    },
+    {
+        version: '2.6.0',
+        date: '2026-01-31',
+        changes: [
+            {
+                type: 'fix',
+                title: 'Vráceno zpět - obsahovalo chybný algoritmus',
+                description: 'Tato verze měla chybný výpočet spotřeby a byla nahrazena verzí 2.7.0'
             }
         ]
     },
