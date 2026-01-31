@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v2.6.0';
+const CACHE_VERSION = 'v2.5.0';
 const CACHE_NAME = `fuel-tracker-${CACHE_VERSION}`;
 
 const ASSETS_TO_CACHE = [
@@ -9,6 +9,7 @@ const ASSETS_TO_CACHE = [
     './js/data.js',
     './js/logger.js',
     './js/sync.js',
+    './js/vendor/chart.min.js',
     './manifest.webmanifest',
     './icons/icon-128.png',
     './icons/icon-512.png'

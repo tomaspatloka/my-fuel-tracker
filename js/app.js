@@ -3,12 +3,33 @@
 /**
  * Application Version
  */
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.5.0';
 
 /**
  * Changelog - Version History
  */
 const CHANGELOG = [
+    {
+        version: '2.5.0',
+        date: '2026-01-31',
+        changes: [
+            {
+                type: 'fix',
+                title: 'Oprava načítání grafů',
+                description: 'Chart.js je nyní hostován lokálně místo CDN, vyřešeny CSP problémy'
+            },
+            {
+                type: 'fix',
+                title: 'Oprava nekonečné smyčky',
+                description: 'Přidán maximální počet pokusů o načtení grafů (10x), zobrazení chyby uživateli'
+            },
+            {
+                type: 'improvement',
+                title: 'Lepší error handling',
+                description: 'Grafy zobrazí uživatelsky přívětivou chybovou hlášku při selhání'
+            }
+        ]
+    },
     {
         version: '2.4.0',
         date: '2026-01-31',
@@ -2650,13 +2671,40 @@ function calculateFuelPriceStats(refuels) {
  */
 let statsCharts = {}; // Store chart instances for cleanup
 
-function initStatsCharts(vehicle, stats, serviceCosts, refuels, currency) {
+function initStatsCharts(vehicle, stats, serviceCosts, refuels, currency, retryCount = 0) {
     try {
+        const MAX_RETRIES = 10; // Maximum 10 retries = 2 seconds
+
         // Check if Chart.js is loaded
         if (typeof Chart === 'undefined') {
-            Logger.error('Charts', 'Chart.js not loaded yet, retrying in 200ms');
+            if (retryCount >= MAX_RETRIES) {
+                Logger.error('Charts', 'Chart.js failed to load after maximum retries', {
+                    retries: retryCount
+                });
+                // Show user-friendly message
+                const statsContainer = document.getElementById('mainContent');
+                if (statsContainer && statsContainer.querySelector('canvas')) {
+                    const errorMsg = document.createElement('div');
+                    errorMsg.style.cssText = 'padding: 20px; text-align: center; color: var(--md-sys-color-error);';
+                    errorMsg.innerHTML = `
+                        <span class="material-symbols-outlined" style="font-size: 48px;">error</span>
+                        <p>Grafy se nepodařilo načíst. Zkuste obnovit stránku.</p>
+                    `;
+                    // Replace first canvas with error
+                    const firstCanvas = statsContainer.querySelector('canvas');
+                    if (firstCanvas && firstCanvas.parentElement) {
+                        firstCanvas.parentElement.appendChild(errorMsg);
+                    }
+                }
+                return;
+            }
+
+            Logger.warn('Charts', 'Chart.js not loaded yet, retrying', {
+                attempt: retryCount + 1,
+                maxRetries: MAX_RETRIES
+            });
             setTimeout(() => {
-                initStatsCharts(vehicle, stats, serviceCosts, refuels, currency);
+                initStatsCharts(vehicle, stats, serviceCosts, refuels, currency, retryCount + 1);
             }, 200);
             return;
         }
