@@ -1,6 +1,11 @@
 "use strict";
 
 /**
+ * Application Version
+ */
+const APP_VERSION = '2.4.0';
+
+/**
  * XSS Protection - Escape HTML to prevent XSS attacks
  */
 function escapeHtml(text) {
@@ -177,6 +182,9 @@ function renderApp() {
     try {
         Logger.debug('App', 'Rendering app');
 
+        // Update version display
+        updateVersionDisplay();
+
         updateVehicleSelector();
 
         // Check if we have active vehicle
@@ -193,6 +201,17 @@ function renderApp() {
             stack: e.stack
         });
         showNotification('Chyba při načítání aplikace');
+    }
+}
+
+/**
+ * Update version display in header
+ */
+function updateVersionDisplay() {
+    const versionEl = document.getElementById('appVersion');
+    if (versionEl) {
+        versionEl.textContent = `v${APP_VERSION}`;
+        Logger.debug('App', 'Version updated', { version: APP_VERSION });
     }
 }
 
@@ -1589,6 +1608,30 @@ function renderSettings() {
                          <span class="material-symbols-outlined" style="color: var(--md-sys-color-error);">delete</span>
                     </div>
                 </div>
+
+                <h3 style="font-size: 1rem; margin: 16px 0 8px; color: var(--md-sys-color-primary);">O aplikaci</h3>
+                <div class="settings-group">
+                    <div class="settings-item" style="cursor: default;">
+                        <div>
+                            <div>Verze aplikace</div>
+                            <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                FuelTracker v${APP_VERSION}
+                            </div>
+                        </div>
+                        <span class="material-symbols-outlined">info</span>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <div class="settings-item" style="cursor: default;">
+                        <div>
+                            <div>Verze dat</div>
+                            <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                ${DataManager.DATA_VERSION}
+                            </div>
+                        </div>
+                        <span class="material-symbols-outlined">database</span>
+                    </div>
+                </div>
             </div>
         `;
         document.getElementById('mainContent').innerHTML = content;
@@ -2383,6 +2426,15 @@ let statsCharts = {}; // Store chart instances for cleanup
 
 function initStatsCharts(vehicle, stats, serviceCosts, refuels, currency) {
     try {
+        // Check if Chart.js is loaded
+        if (typeof Chart === 'undefined') {
+            Logger.error('Charts', 'Chart.js not loaded yet, retrying in 200ms');
+            setTimeout(() => {
+                initStatsCharts(vehicle, stats, serviceCosts, refuels, currency);
+            }, 200);
+            return;
+        }
+
         Logger.info('Charts', 'Initializing statistics charts');
 
         // Destroy existing charts to prevent memory leaks

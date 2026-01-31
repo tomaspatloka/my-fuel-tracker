@@ -19,9 +19,6 @@
     <!-- Styles -->
     <link rel="stylesheet" href="css/style.css">
 
-    <!-- Chart.js for graphs -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.webmanifest">
 </head>
@@ -34,6 +31,7 @@
                 <div class="app-title-wrapper">
                     <span class="material-symbols-outlined app-logo">local_gas_station</span>
                     <h1 class="app-title">FuelTracker</h1>
+                    <span class="app-version" id="appVersion">v-.-.-</span>
                 </div>
                 <!-- Vehicle Selector -->
                 <div class="app-actions">
@@ -261,6 +259,9 @@
         </div>
 
     </div>
+
+    <!-- Chart.js for graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
     <!-- Scripts -->
     <script src="js/logger.js"></script>
