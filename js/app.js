@@ -1750,13 +1750,39 @@ function toggleAutoDarkMode() {
 }
 
 function exportData() {
-    const dataStr = JSON.stringify(DataManager.state, null, 2);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = "fuel_tracker_backup.json";
-    a.click();
+    try {
+        Logger.info('Settings', 'Exporting data with sync info');
+
+        // Create export payload with sync ID and timestamp
+        const exportPayload = {
+            ...DataManager.state,
+            _syncId: typeof CloudSync !== 'undefined' ? CloudSync.getUserId() : null,
+            _exportDate: new Date().toISOString()
+        };
+
+        const dataStr = JSON.stringify(exportPayload, null, 2);
+        const blob = new Blob([dataStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "fuel_tracker_backup.json";
+        a.click();
+
+        URL.revokeObjectURL(url);
+
+        Logger.info('Settings', 'Export successful', {
+            hasSyncId: !!exportPayload._syncId,
+            exportDate: exportPayload._exportDate
+        });
+
+        showNotification('Data exportována s Sync ID');
+    } catch (e) {
+        Logger.error('Settings', 'Export failed', {
+            error: e.message,
+            stack: e.stack
+        });
+        showNotification('Chyba při exportu dat');
+    }
 }
 
 function exportCSV() {
@@ -1862,7 +1888,7 @@ function importData() {
                 });
 
                 const reader = new FileReader();
-                reader.onload = ev => {
+                reader.onload = async ev => {
                     try {
                         const data = JSON.parse(ev.target.result);
 
@@ -1873,16 +1899,91 @@ function importData() {
 
                         Logger.info('Settings', 'Importing data', {
                             vehiclesCount: data.vehicles.length,
-                            refuelsCount: data.refuels.length
+                            refuelsCount: data.refuels.length,
+                            hasSyncId: !!data._syncId,
+                            exportDate: data._exportDate
                         });
 
-                        DataManager.state = data;
+                        // Check export age and warn user
+                        if (data._exportDate) {
+                            const exportDate = new Date(data._exportDate);
+                            const daysSinceExport = Math.floor((Date.now() - exportDate.getTime()) / (1000 * 60 * 60 * 24));
+
+                            if (daysSinceExport > 7) {
+                                Logger.warn('Settings', 'Import file is old', { daysSinceExport });
+                                showNotification(`⚠️ Export je starý ${daysSinceExport} dní`);
+                            }
+                        }
+
+                        // Restore Sync ID if present
+                        let syncIdRestored = false;
+                        if (data._syncId && typeof CloudSync !== 'undefined') {
+                            syncIdRestored = CloudSync.setUserId(data._syncId);
+                            Logger.info('Settings', 'Sync ID restored', {
+                                syncId: data._syncId,
+                                success: syncIdRestored
+                            });
+                        }
+
+                        // Remove internal sync fields before importing
+                        const cleanData = { ...data };
+                        delete cleanData._syncId;
+                        delete cleanData._exportDate;
+                        delete cleanData._lastSync;
+                        delete cleanData._deviceInfo;
+
+                        // Import local data first
+                        DataManager.state = cleanData;
                         DataManager.save();
                         DataManager.applySettings();
                         renderApp();
                         showNotification("Data úspěšně obnovena!");
 
                         Logger.info('Settings', 'Data import successful');
+
+                        // Try to pull fresh data from cloud if sync ID was restored
+                        if (syncIdRestored && typeof CloudSync !== 'undefined' && CloudSync.isOnline()) {
+                            Logger.info('Settings', 'Attempting to sync with cloud after import');
+                            showNotification('🔄 Kontroluji aktuální data v cloudu...', 'cloud_sync');
+
+                            try {
+                                const result = await CloudSync.pullFromCloud();
+
+                                if (result.success && result.data) {
+                                    // Compare timestamps
+                                    const cloudDate = new Date(result.data._lastSync || 0);
+                                    const exportDate = new Date(data._exportDate || 0);
+
+                                    if (cloudDate > exportDate) {
+                                        Logger.info('Settings', 'Cloud data is newer, merging', {
+                                            cloudDate: result.data._lastSync,
+                                            exportDate: data._exportDate
+                                        });
+
+                                        if (CloudSync.mergeData(result.data)) {
+                                            renderApp();
+                                            showNotification('✅ Data aktualizována z cloudu!', 'cloud_done');
+                                        }
+                                    } else {
+                                        Logger.info('Settings', 'Import data is newer than cloud');
+                                        showNotification('✅ Import obsahuje nejnovější data', 'check_circle');
+
+                                        // Push imported data to cloud to update it
+                                        CloudSync.pushToCloud();
+                                    }
+                                } else {
+                                    Logger.info('Settings', 'No cloud data found, pushing import');
+                                    showNotification('📤 Nahrávám data do cloudu...', 'cloud_upload');
+                                    await CloudSync.pushToCloud();
+                                }
+                            } catch (cloudError) {
+                                Logger.error('Settings', 'Cloud sync after import failed', {
+                                    error: cloudError.message
+                                });
+                                showNotification('⚠️ Import OK, cloud sync selhal', 'warning');
+                            }
+                        }
+
                     } catch (err) {
                         Logger.error('Settings', 'Failed to parse import file', {
                             error: err.message,

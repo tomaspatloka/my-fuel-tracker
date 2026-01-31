@@ -3,6 +3,9 @@
 const DataManager = {
     DATA_VERSION: '2.3.0', // Current data structure version
 
+    // Cloud push timeout for debouncing
+    _cloudPushTimeout: null,
+
     // Default State
     state: {
         version: '2.3.0', // Data version
@@ -271,6 +274,10 @@ const DataManager = {
                 Logger.debug('DataManager', 'Data saved successfully', {
                     dataSize: dataStr.length
                 });
+
+                // Schedule cloud push if cloud sync is enabled
+                this._scheduleCloudPush();
+
             } catch (quotaError) {
                 if (quotaError.name === 'QuotaExceededError') {
                     Logger.error('DataManager', 'Storage quota exceeded', {
@@ -301,6 +308,44 @@ const DataManager = {
                 showNotification('Chyba při ukládání dat!');
             }
         }
+    },
+
+    /**
+     * Schedule cloud push (debounced)
+     * Waits 5 seconds after last change before syncing to cloud
+     */
+    _scheduleCloudPush: function() {
+        // Only if cloud sync is enabled and CloudSync is available
+        if (!this.state.settings.cloudSync || typeof CloudSync === 'undefined') {
+            return;
+        }
+
+        // Only if online
+        if (!CloudSync.isOnline()) {
+            Logger.debug('DataManager', 'Skipping cloud push - offline');
+            return;
+        }
+
+        // Clear previous timeout
+        if (this._cloudPushTimeout) {
+            clearTimeout(this._cloudPushTimeout);
+        }
+
+        // Schedule new push after 5 seconds
+        this._cloudPushTimeout = setTimeout(() => {
+            Logger.info('DataManager', 'Auto-pushing data to cloud');
+            CloudSync.pushToCloud().then(result => {
+                if (result.success) {
+                    Logger.info('DataManager', 'Auto cloud push successful');
+                } else {
+                    Logger.warn('DataManager', 'Auto cloud push failed', { error: result.error });
+                }
+            }).catch(error => {
+                Logger.error('DataManager', 'Auto cloud push error', { error: error.message });
+            });
+        }, 5000); // 5 seconds debounce
+
+        Logger.debug('DataManager', 'Cloud push scheduled (5s)');
     },
 
     /**
