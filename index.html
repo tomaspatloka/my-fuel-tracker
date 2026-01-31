@@ -198,6 +198,22 @@
             </div>
         </div>
 
+        <!-- Modal (Changelog - Version History) -->
+        <div class="modal" id="changelogModal">
+            <div class="modal-content" style="max-width: 600px;">
+                <div class="modal-header">
+                    <span class="material-symbols-outlined modal-icon">update</span>
+                    <h3>Historie verzí</h3>
+                </div>
+                <div id="changelogContent" style="max-height: 60vh; overflow-y: auto;">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+                <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px;">
+                    <button class="button filled-button" onclick="closeModal('changelogModal')">Zavřít</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Modal (For Adding/Editing Service Record) -->
         <div class="modal" id="serviceModal">
             <div class="modal-content">

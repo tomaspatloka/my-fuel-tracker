@@ -6,6 +6,148 @@
 const APP_VERSION = '2.4.0';
 
 /**
+ * Changelog - Version History
+ */
+const CHANGELOG = [
+    {
+        version: '2.4.0',
+        date: '2026-01-31',
+        changes: [
+            {
+                type: 'feature',
+                title: 'Interaktivní grafy ve statistikách',
+                description: 'Přidány Chart.js grafy pro lepší vizualizaci dat (koláčové a čárové grafy)'
+            },
+            {
+                type: 'feature',
+                title: 'Statistiky cen paliva',
+                description: 'Zobrazení nejlevnějšího, nejdražšího, průměrného a posledního tankování'
+            },
+            {
+                type: 'feature',
+                title: 'Systém verzování',
+                description: 'Zobrazení verze aplikace v hlavičce a v nastavení'
+            },
+            {
+                type: 'feature',
+                title: 'Historie verzí',
+                description: 'Přehled všech funkcí a vylepšení podle verzí (tento dialog)'
+            },
+            {
+                type: 'improvement',
+                title: 'Vylepšený export/import',
+                description: 'Export obsahuje Sync ID a timestamp, automatické stahování z cloudu při importu'
+            },
+            {
+                type: 'improvement',
+                title: 'Automatická cloud synchronizace',
+                description: 'Data se automaticky nahrávají do cloudu 5 sekund po změně'
+            },
+            {
+                type: 'fix',
+                title: 'Opravy grafů',
+                description: 'Vyřešeny problémy s načítáním Chart.js knihovny'
+            }
+        ]
+    },
+    {
+        version: '2.3.0',
+        date: '2026-01-30',
+        changes: [
+            {
+                type: 'feature',
+                title: 'Vynutit aktualizaci',
+                description: 'Funkce pro manuální vyčištění cache a restart aplikace'
+            },
+            {
+                type: 'improvement',
+                title: 'Opravy logiky a validace',
+                description: 'Vylepšená validace dat a chybové hlášení'
+            }
+        ]
+    },
+    {
+        version: '2.2.0',
+        date: '2026-01-29',
+        changes: [
+            {
+                type: 'feature',
+                title: 'Editace vozidel',
+                description: 'Možnost upravovat existující vozidla, přidána SPZ a rok výroby'
+            },
+            {
+                type: 'feature',
+                title: 'Spotřeba l/100km',
+                description: 'Automatický výpočet a zobrazení spotřeby u každého tankování'
+            }
+        ]
+    },
+    {
+        version: '2.1.0',
+        date: '2026-01-28',
+        changes: [
+            {
+                type: 'feature',
+                title: 'Automatické aktualizace',
+                description: 'Systém pro automatickou detekci a instalaci aktualizací'
+            },
+            {
+                type: 'feature',
+                title: 'Service Worker',
+                description: 'PWA podpora pro offline režim'
+            }
+        ]
+    },
+    {
+        version: '2.0.0',
+        date: '2026-01-27',
+        changes: [
+            {
+                type: 'feature',
+                title: 'Cloud synchronizace',
+                description: 'Synchronizace dat mezi zařízeními pomocí Cloudflare KV'
+            },
+            {
+                type: 'feature',
+                title: 'Servisní záznamy',
+                description: 'Správa servisu, pojištění, STK, dálničních známek'
+            },
+            {
+                type: 'feature',
+                title: 'Dark mode',
+                description: 'Tmavý režim s automatickou detekcí systémového nastavení'
+            },
+            {
+                type: 'feature',
+                title: 'Export/Import dat',
+                description: 'Možnost exportu a importu dat ve formátu JSON a CSV'
+            }
+        ]
+    },
+    {
+        version: '1.0.0',
+        date: '2026-01-25',
+        changes: [
+            {
+                type: 'feature',
+                title: 'Základní funkce',
+                description: 'Evidence tankování, výpočet spotřeby, základní statistiky'
+            },
+            {
+                type: 'feature',
+                title: 'Více vozidel',
+                description: 'Možnost spravovat více vozidel současně'
+            },
+            {
+                type: 'feature',
+                title: 'LocalStorage',
+                description: 'Automatické ukládání dat lokálně v prohlížeči'
+            }
+        ]
+    }
+];
+
+/**
  * XSS Protection - Escape HTML to prevent XSS attacks
  */
 function escapeHtml(text) {
@@ -1610,6 +1752,17 @@ function renderSettings() {
                 </div>
 
                 <h3 style="font-size: 1rem; margin: 16px 0 8px; color: var(--md-sys-color-primary);">O aplikaci</h3>
+                <div class="settings-group" onclick="showChangelog()">
+                    <div class="settings-item">
+                        <div>
+                            <div>Historie verzí</div>
+                            <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                Zobrazit změny a nové funkce
+                            </div>
+                        </div>
+                        <span class="material-symbols-outlined">update</span>
+                    </div>
+                </div>
                 <div class="settings-group">
                     <div class="settings-item" style="cursor: default;">
                         <div>
@@ -2359,6 +2512,79 @@ async function copySyncId() {
         } else {
             showNotification('Nepodařilo se zkopírovat');
         }
+    }
+}
+
+/**
+ * Show changelog modal with version history
+ */
+function showChangelog() {
+    try {
+        Logger.info('Changelog', 'Showing changelog');
+
+        // Generate changelog HTML
+        const changelogHtml = CHANGELOG.map(version => {
+            const versionClass = version.version === APP_VERSION ? 'current-version' : '';
+
+            const changesHtml = version.changes.map(change => {
+                const typeIcon = {
+                    'feature': '✨',
+                    'improvement': '🔧',
+                    'fix': '🐛'
+                }[change.type] || '📌';
+
+                const typeColor = {
+                    'feature': 'var(--md-sys-color-primary)',
+                    'improvement': 'var(--md-sys-color-tertiary)',
+                    'fix': 'var(--md-sys-color-error)'
+                }[change.type] || 'var(--md-sys-color-outline)';
+
+                return `
+                    <div class="changelog-item">
+                        <div style="display: flex; align-items: start; gap: 8px;">
+                            <span style="font-size: 1.2rem; flex-shrink: 0;">${typeIcon}</span>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 500; color: ${typeColor}; margin-bottom: 2px;">
+                                    ${escapeHtml(change.title)}
+                                </div>
+                                <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
+                                    ${escapeHtml(change.description)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="changelog-version ${versionClass}">
+                    <div class="changelog-header">
+                        <div>
+                            <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                                v${escapeHtml(version.version)}
+                                ${version.version === APP_VERSION ? '<span class="version-badge">Aktuální</span>' : ''}
+                            </h3>
+                            <div style="font-size: 0.8rem; color: var(--md-sys-color-outline); margin-top: 4px;">
+                                ${escapeHtml(new Date(version.date).toLocaleDateString('cs-CZ'))}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="changelog-changes">
+                        ${changesHtml}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        document.getElementById('changelogContent').innerHTML = changelogHtml;
+        openModal('changelogModal');
+
+    } catch (e) {
+        Logger.error('Changelog', 'Failed to show changelog', {
+            error: e.message,
+            stack: e.stack
+        });
+        showNotification('Chyba při zobrazení historie verzí');
     }
 }
 

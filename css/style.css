@@ -755,3 +755,97 @@ input:checked+.slider:before {
         padding: 8px 0;
     }
 }
+
+/* === Changelog Modal === */
+.changelog-version {
+    margin-bottom: 24px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.changelog-version:last-child {
+    border-bottom: none;
+}
+
+.changelog-version.current-version {
+    background: linear-gradient(
+        to right,
+        rgba(103, 80, 164, 0.05),
+        transparent
+    );
+    padding: 16px;
+    border-radius: 12px;
+    margin-left: -16px;
+    margin-right: -16px;
+    padding-left: 32px;
+    padding-right: 32px;
+}
+
+.changelog-header {
+    margin-bottom: 16px;
+}
+
+.version-badge {
+    font-size: 0.65rem;
+    background: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.changelog-changes {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.changelog-item {
+    padding: 8px 0;
+}
+
+.changelog-item:hover {
+    background: var(--md-sys-color-surface-variant);
+    margin: 0 -12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+/* Scrollbar styling for changelog */
+#changelogContent {
+    padding: 16px;
+}
+
+#changelogContent::-webkit-scrollbar {
+    width: 8px;
+}
+
+#changelogContent::-webkit-scrollbar-track {
+    background: var(--md-sys-color-surface-variant);
+    border-radius: 4px;
+}
+
+#changelogContent::-webkit-scrollbar-thumb {
+    background: var(--md-sys-color-outline);
+    border-radius: 4px;
+}
+
+#changelogContent::-webkit-scrollbar-thumb:hover {
+    background: var(--md-sys-color-primary);
+}
+
+@media (max-width: 600px) {
+    .changelog-version.current-version {
+        margin-left: -8px;
+        margin-right: -8px;
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    #changelogContent {
+        padding: 8px;
+    }
+}
