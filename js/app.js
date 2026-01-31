@@ -2614,7 +2614,7 @@ function showChangelog() {
         }).join('');
 
         document.getElementById('changelogContent').innerHTML = changelogHtml;
-        openModal('changelogModal');
+        document.getElementById('changelogModal').classList.add('active');
 
     } catch (e) {
         Logger.error('Changelog', 'Failed to show changelog', {
