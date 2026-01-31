@@ -3,12 +3,28 @@
 /**
  * Application Version
  */
-const APP_VERSION = '2.5.0';
+const APP_VERSION = '2.6.0';
 
 /**
  * Changelog - Version History
  */
 const CHANGELOG = [
+    {
+        version: '2.6.0',
+        date: '2026-01-31',
+        changes: [
+            {
+                type: 'feature',
+                title: 'Výpočet spotřeby i pro částečná tankování',
+                description: 'Spotřeba l/100km se nyní počítá i když není tankováno do plna - použit jednoduchý vzorec litry/km × 100'
+            },
+            {
+                type: 'improvement',
+                title: 'Přesnější statistiky spotřeby',
+                description: 'Všechna tankování (nejen plná nádrž) se nyní započítávají do statistik a grafů spotřeby'
+            }
+        ]
+    },
     {
         version: '2.5.0',
         date: '2026-01-31',
