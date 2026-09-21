@@ -3,12 +3,23 @@
 /**
  * Application Version
  */
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.7.1';
 
 /**
  * Changelog - Version History
  */
 const CHANGELOG = [
+    {
+        version: '2.7.1',
+        date: '2026-09-21',
+        changes: [
+            {
+                type: 'fix',
+                title: 'Šlo zadat jen cenu paliva v rozsahu 25-45 Kč/l',
+                description: 'Limit ceny za litr má nově toleranci ±10 Kč nad nastavený rozsah, takže projde i prémiové palivo nebo LPG. Výchozí rozsah 25-45 Kč tak reálně povolí 15-55 Kč/l.'
+            }
+        ]
+    },
     {
         version: '2.7.0',
         date: '2026-01-31',
@@ -885,8 +896,11 @@ function saveRefuelFromModal() {
         }
 
         // 2. Price limit
-        const minPrice = DataManager.state.settings.minPrice || 0;
-        const maxPrice = DataManager.state.settings.maxPrice || 1000;
+        // Tolerance ±10 Kč/l nad nastavený rozsah - prémiová paliva a LPG se jinak
+        // nedaly zadat, protože limit 25-45 Kč sedí jen na běžný benzin/naftu.
+        const PRICE_TOLERANCE = 10;
+        const minPrice = Math.max(0, (DataManager.state.settings.minPrice || 0) - PRICE_TOLERANCE);
+        const maxPrice = (DataManager.state.settings.maxPrice || 1000) + PRICE_TOLERANCE;
         if (price < minPrice || price > maxPrice) {
             showNotification(`Cena mimo limit (${minPrice}-${maxPrice} Kč/l)`);
             Logger.warn('Refuel', 'Price out of range', {
