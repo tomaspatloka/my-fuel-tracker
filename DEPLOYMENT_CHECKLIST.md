@@ -265,7 +265,7 @@ Ctrl+Shift+R (Hard refresh)
 ## Final Verification
 
 - [ ] ✅ Aplikace běží na Cloudflare Pages
-- [ ] ✅ URL funguje: https://fuel-tracker.pages.dev
+- [ ] ✅ URL funguje: https://my-fuel-tracker.pages.dev
 - [ ] ✅ PWA instalovatelná
 - [ ] ✅ Offline funkční
 - [ ] ✅ Data se ukládají
@@ -276,7 +276,7 @@ Ctrl+Shift+R (Hard refresh)
 
 ## 🎉 Deployment Complete!
 
-**Production URL:** https://fuel-tracker.pages.dev
+**Production URL:** https://my-fuel-tracker.pages.dev
 **Status:** ✅ Live
 **Deployment Date:** _______________________
 **Deployed By:** _______________________

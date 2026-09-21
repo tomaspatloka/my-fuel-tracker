@@ -41,7 +41,7 @@ Moderní PWA aplikace pro sledování spotřeby paliva vašeho vozidla s pokroč
 
 ### Online verze (Doporučeno)
 
-Navštivte: **[https://fuel-tracker.pages.dev](https://fuel-tracker.pages.dev)**
+Navštivte: **[https://my-fuel-tracker.pages.dev](https://my-fuel-tracker.pages.dev)**
 
 ### Lokální instalace
 

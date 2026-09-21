@@ -55,7 +55,7 @@ Environment variables: (žádné nejsou potřeba)
 
 1. Klikněte na **Save and Deploy**
 2. Cloudflare automaticky nasadí aplikaci
-3. Po dokončení získáte URL: `https://fuel-tracker.pages.dev`
+3. Po dokončení získáte URL: `https://my-fuel-tracker.pages.dev`
 
 ### Metoda 2: Wrangler CLI (Pokročilé)
 
@@ -174,7 +174,7 @@ Optimalizovaný Service Worker v2.0.0:
 Pokud doména není na Cloudflare:
 
 ```
-CNAME @ fuel-tracker.pages.dev
+CNAME @ my-fuel-tracker.pages.dev
 ```
 
 Pokud doména je na Cloudflare:
@@ -403,7 +403,7 @@ Cloudflare Pages automaticky:
 
 Vaše aplikace je dostupná na:
 ```
-https://fuel-tracker.pages.dev
+https://my-fuel-tracker.pages.dev
 ```
 
 Nebo na vlastní doméně:
