@@ -1,14 +1,14 @@
 "use strict";
 
 const DataManager = {
-    DATA_VERSION: '2.3.0', // Current data structure version
+    DATA_VERSION: '2.4.0', // Current data structure version
 
     // Cloud push timeout for debouncing
     _cloudPushTimeout: null,
 
     // Default State
     state: {
-        version: '2.3.0', // Data version
+        version: '2.4.0', // Data version
         vehicles: [],
         refuels: [],
         services: [], // Service records (repairs, vignettes, insurance, etc.)
@@ -18,8 +18,8 @@ const DataManager = {
             notifications: true,
             currency: "Kč",
             activeVehicleId: null,
-            minPrice: 25,
-            maxPrice: 45,
+            minPrice: 15,
+            maxPrice: 55,
             cloudSync: false // Cloud synchronization
         }
     },
@@ -90,8 +90,8 @@ const DataManager = {
                     notifications: true,
                     currency: "Kč",
                     activeVehicleId: null,
-                    minPrice: 25,
-                    maxPrice: 45,
+                    minPrice: 15,
+                    maxPrice: 55,
                     cloudSync: false
                 }
             };
@@ -210,6 +210,20 @@ const DataManager = {
                     this.state.settings.darkModeAuto = true;
                     Logger.debug('DataManager', 'Added darkModeAuto setting');
                 }
+            }
+
+            // Migration to v2.4.0 - price limits are now editable in Settings
+            // Old builds had 25-45 Kc/l hardwired with no UI, so premium fuel and LPG
+            // could not be entered at all. Widen that one case to the new default.
+            if (this.state.settings &&
+                this.state.settings.minPrice === 25 &&
+                this.state.settings.maxPrice === 45) {
+                this.state.settings.minPrice = 15;
+                this.state.settings.maxPrice = 55;
+                Logger.info('DataManager', 'Widened price limits to new default', {
+                    minPrice: 15,
+                    maxPrice: 55
+                });
             }
 
             // Update version

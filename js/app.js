@@ -3,12 +3,28 @@
 /**
  * Application Version
  */
-const APP_VERSION = '2.7.1';
+const APP_VERSION = '2.7.2';
 
 /**
  * Changelog - Version History
  */
 const CHANGELOG = [
+    {
+        version: '2.7.2',
+        date: '2026-09-21',
+        changes: [
+            {
+                type: 'feature',
+                title: 'Rozsah ceny za litr jde nastavit',
+                description: 'Nastavení > Tankování má políčka pro nejnižší a nejvyšší cenu za litr. Dřív byl rozsah zadrátovaný v kódu a nešel změnit.'
+            },
+            {
+                type: 'improvement',
+                title: 'Limit ukazuje přesně to, co je nastavené',
+                description: 'Skrytá tolerance ±10 Kč z verze 2.7.1 je pryč, protože rozsah si teď nastavíte sami. Původní limit 25-45 Kč/l se jednorázově rozšíří na 15-55 Kč/l.'
+            }
+        ]
+    },
     {
         version: '2.7.1',
         date: '2026-09-21',
@@ -896,11 +912,10 @@ function saveRefuelFromModal() {
         }
 
         // 2. Price limit
-        // Tolerance ±10 Kč/l nad nastavený rozsah - prémiová paliva a LPG se jinak
-        // nedaly zadat, protože limit 25-45 Kč sedí jen na běžný benzin/naftu.
-        const PRICE_TOLERANCE = 10;
-        const minPrice = Math.max(0, (DataManager.state.settings.minPrice || 0) - PRICE_TOLERANCE);
-        const maxPrice = (DataManager.state.settings.maxPrice || 1000) + PRICE_TOLERANCE;
+        // Rozsah se nastavuje v Nastavení > Tankování, takže hláška i limit
+        // ukazují přesně to, co je tam vidět - žádná skrytá tolerance navíc.
+        const minPrice = DataManager.state.settings.minPrice || 0;
+        const maxPrice = DataManager.state.settings.maxPrice || 1000;
         if (price < minPrice || price > maxPrice) {
             showNotification(`Cena mimo limit (${minPrice}-${maxPrice} Kč/l)`);
             Logger.warn('Refuel', 'Price out of range', {
@@ -1757,6 +1772,32 @@ function renderSettings() {
                 </div>
                 ` : ''}
 
+                <h3 style="font-size: 1rem; margin: 16px 0 8px; color: var(--md-sys-color-primary);">Tankování</h3>
+                <div class="settings-group">
+                    <div class="settings-item">
+                        <div>
+                            <div>Nejnižší cena za litr</div>
+                            <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                Levnější tankování appka odmítne
+                            </div>
+                        </div>
+                        <input type="number" id="settingMinPrice" class="text-field" step="0.1" min="0"
+                            style="width: 100px; text-align: right;"
+                            value="${settings.minPrice}" onchange="savePriceLimits()">
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div>Nejvyšší cena za litr</div>
+                            <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                Dražší tankování appka odmítne
+                            </div>
+                        </div>
+                        <input type="number" id="settingMaxPrice" class="text-field" step="0.1" min="0"
+                            style="width: 100px; text-align: right;"
+                            value="${settings.maxPrice}" onchange="savePriceLimits()">
+                    </div>
+                </div>
+
                 <h3 style="font-size: 1rem; margin: 16px 0 8px; color: var(--md-sys-color-primary);">Data</h3>
                 <div class="settings-group" onclick="exportData()">
                     <div class="settings-item">
@@ -2087,6 +2128,40 @@ function toggleDarkMode() {
     DataManager.save();
     DataManager.applySettings();
     renderApp();
+}
+
+/**
+ * Uloží povolený rozsah ceny za litr z Nastavení.
+ * Hodnoty rovnou omezují, co jde zadat u tankování, takže se validují
+ * a při nesmyslu se políčka vrátí na poslední platný stav.
+ */
+function savePriceLimits() {
+    const minEl = document.getElementById('settingMinPrice');
+    const maxEl = document.getElementById('settingMaxPrice');
+    if (!minEl || !maxEl) return;
+
+    const min = parseFloat(minEl.value);
+    const max = parseFloat(maxEl.value);
+    const settings = DataManager.state.settings;
+
+    if (isNaN(min) || isNaN(max) || min < 0 || max <= 0) {
+        showNotification('Zadejte platné ceny (kladná čísla).');
+        Logger.warn('Settings', 'Invalid price limits', { min: minEl.value, max: maxEl.value });
+        minEl.value = settings.minPrice;
+        maxEl.value = settings.maxPrice;
+        return;
+    }
+
+    if (min >= max) {
+        showNotification('Nejnižší cena musí být menší než nejvyšší.');
+        Logger.warn('Settings', 'Price limits inverted', { min, max });
+        minEl.value = settings.minPrice;
+        maxEl.value = settings.maxPrice;
+        return;
+    }
+
+    DataManager.updateSettings({ minPrice: min, maxPrice: max });
+    showNotification(`Rozsah ceny nastaven na ${min}-${max} Kč/l`);
 }
 
 function toggleAutoDarkMode() {

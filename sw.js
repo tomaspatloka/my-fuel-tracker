@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v2.7.1';
+const CACHE_VERSION = 'v2.7.2';
 const CACHE_NAME = `fuel-tracker-${CACHE_VERSION}`;
 
 const ASSETS_TO_CACHE = [

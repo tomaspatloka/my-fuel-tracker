@@ -1,6 +1,6 @@
 {
   "name": "fuel-tracker",
-  "version": "2.7.1",
+  "version": "2.7.2",
   "description": "PWA aplikace pro sledování spotřeby paliva s pokročilým error handlingem a logováním",
   "main": "index.html",
   "scripts": {
