@@ -2,7 +2,7 @@
 
 Moderní PWA aplikace pro sledování spotřeby paliva vašeho vozidla s pokročilým error handlingem a logováním.
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/yourusername/fuel-tracker)
+[![Version](https://img.shields.io/badge/version-2.8.0-blue.svg)](https://github.com/tomaspatloka/my-fuel-tracker)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PWA](https://img.shields.io/badge/PWA-ready-brightgreen.svg)](https://web.dev/progressive-web-apps/)
 
@@ -47,8 +47,8 @@ Navštivte: **[https://my-fuel-tracker.pages.dev](https://my-fuel-tracker.pages.
 
 ```bash
 # 1. Klonujte repository
-git clone https://github.com/yourusername/fuel-tracker.git
-cd fuel-tracker
+git clone https://github.com/tomaspatloka/my-fuel-tracker.git
+cd my-fuel-tracker
 
 # 2. Spusťte lokální server
 python -m http.server 8000
@@ -76,9 +76,16 @@ python -m http.server 8000
    - Datum tankování
    - Stav tachometru (km)
    - Natankované litry
-   - Cena za litr
+   - Cena za litr **nebo** celkovou cenu z účtenky (druhá hodnota se dopočítá, desetinná čárka i tečka)
    - Plná nádrž? (checkbox)
+   - Předchozí tankování nezapsáno? (když jste nějaké zapomněli - spotřeba se nepokazí)
 4. Uložte
+
+Klepnutím na záznam ho upravíte, tažením doleva smažete.
+
+**Jak se počítá spotřeba:** od plné nádrže k plné nádrži, částečná tankování se přičtou
+k další plné. Záznamy se řadí podle tachometru. Nereálné úseky (mimo 1-50 l/100 km,
+obvykle překlep) se do statistik nezapočítají.
 
 ### 3. Zobrazení statistik
 
@@ -95,7 +102,22 @@ python -m http.server 8000
 **Import:**
 1. Nastavení → Importovat data
 2. Vyberte JSON soubor
-3. Data budou obnovena
+3. Potvrďte - současná data se nejdřív automaticky zazálohují
+4. Pokud soubor obsahuje jiné Sync ID, aplikace se zeptá, zda ho převzít
+
+**Zálohy v zařízení:** Nastavení → Zálohy v zařízení (poslední 3 automatické zálohy
+před importem, obnovou a migrací dat, s možností obnovy).
+
+### 5. Cloud synchronizace
+
+- Nastavení → Synchronizace do cloudu
+- Synchronizace vždy nejdřív stáhne data z cloudu, **sloučí je záznam po záznamu**
+  (novější úprava vyhraje, smazání se pamatuje) a teprve pak odešle.
+  Nic zadaného na jiném zařízení ani offline se neztratí.
+- Změny udělané offline se odešlou po připojení.
+- Sync ID je jediný klíč k datům v cloudu - nesdílejte ho.
+- Mezi zařízeními se sdílí data a cenový limit; tmavý režim a vybrané auto jsou
+  nastavení každého zařízení zvlášť.
 
 ## 🔧 Technologie
 
@@ -121,9 +143,15 @@ FuelTracker/
 ├── css/
 │   └── style.css             # Styly (Material Design)
 ├── js/
+│   ├── utils.js              # Datum (lokální), escapeHtml, formátování
 │   ├── logger.js             # Logging systém
-│   ├── data.js               # Data management
+│   ├── data.js               # Data management, výpočty, merge
+│   ├── sync.js               # Cloud synchronizace
 │   └── app.js                # Aplikační logika
+├── functions/api/sync.js     # Cloudflare Pages Function (KV)
+├── tests/
+│   ├── run-tests.js          # Automatické testy (npm test)
+│   └── e2e_playwright.py     # Volitelné E2E testy v prohlížeči
 ├── icons/
 │   ├── icon-128.png          # PWA ikony
 │   └── icon-512.png
@@ -145,8 +173,8 @@ FuelTracker/
 
 ```bash
 # Klonovat repo
-git clone https://github.com/yourusername/fuel-tracker.git
-cd fuel-tracker
+git clone https://github.com/tomaspatloka/my-fuel-tracker.git
+cd my-fuel-tracker
 
 # Spustit dev server
 npm run dev
@@ -154,6 +182,9 @@ npm run dev
 python -m http.server 8000
 
 # Otevřít http://localhost:8000
+
+# Testy (bez závislostí, Node 18+)
+npm test
 ```
 
 ### Testování PWA
@@ -190,7 +221,7 @@ npm install -g wrangler
 wrangler login
 
 # Deploy
-wrangler pages publish . --project-name=fuel-tracker
+wrangler pages deploy . --project-name=fuel-tracker
 ```
 
 ### Alternativy
@@ -229,14 +260,15 @@ Aplikace validuje:
 ✅ **Povinná pole** - žádné pole nemůže být prázdné
 ✅ **Číselné rozsahy** - litry, cena, tachometr
 ✅ **Platnost data** - nemůže být v budoucnosti
-✅ **Kapacita nádrže** - nelze natankovat více než kapacita
-✅ **Cenové limity** - cena musí být v realistickém rozsahu (25-45 Kč/l)
-✅ **Konzistence tachometru** - nové záznamy musí mít vyšší stav
+✅ **Kapacita nádrže** - nad objem nádrže se aplikace zeptá, nad 1,5× objemu odmítne (překlep)
+✅ **Cenové limity** - nastavitelné v Nastavení (výchozí 15-55 Kč/l)
+✅ **Konzistence tachometru** - stav musí odpovídat pořadí podle data, duplicita se odmítne
+✅ **Překlep v tachometru** - skok o víc než 2000 km od předchozího tankování je potřeba potvrdit
 
 ## 🔒 Bezpečnost & Privacy
 
 - ✅ **Žádné tracking** - aplikace nesleduje uživatele
-- ✅ **Žádné servery** - vše běží lokálně
+- ✅ **Server jen pro volitelnou synchronizaci** - bez ní vše běží lokálně
 - ✅ **Žádné cookies** - nepoužíváme cookies
 - ✅ **localStorage only** - data pouze ve vašem prohlížeči
 - ✅ **HTTPS** - šifrovaná komunikace (na produkci)
@@ -307,7 +339,7 @@ MIT License - viz [LICENSE](LICENSE) soubor
 
 Vytvořil: [Vaše jméno]
 Email: your.email@example.com
-GitHub: [@yourusername](https://github.com/yourusername)
+GitHub: [@tomaspatloka](https://github.com/tomaspatloka)
 
 ## 🙏 Poděkování
 
@@ -357,4 +389,4 @@ A: Vymažte cache aplikace v DevTools (F12 → Application → Clear storage) a 
 
 **⭐ Pokud se vám aplikace líbí, dejte jí hvězdičku na GitHubu!**
 
-[Report Bug](https://github.com/yourusername/fuel-tracker/issues) · [Request Feature](https://github.com/yourusername/fuel-tracker/issues) · [Documentation](https://github.com/yourusername/fuel-tracker/wiki)
+[Report Bug](https://github.com/tomaspatloka/my-fuel-tracker/issues) · [Request Feature](https://github.com/tomaspatloka/my-fuel-tracker/issues) · [Documentation](https://github.com/tomaspatloka/my-fuel-tracker/wiki)

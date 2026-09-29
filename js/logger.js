@@ -25,29 +25,32 @@ const Logger = {
      * Initialize logger with settings
      */
     init: function(settings = {}) {
-        this.currentLevel = settings.logLevel || this.LEVELS.INFO;
+        this.currentLevel = (typeof settings.logLevel === 'number') ? settings.logLevel : this.LEVELS.INFO;
         this.enableConsole = settings.enableConsole !== false; // default true
 
         // Set up global error handler
         window.addEventListener('error', (event) => {
-            this.error('Global Error', {
+            this.error('App', 'Global Error', {
                 message: event.message,
                 filename: event.filename,
                 lineno: event.lineno,
                 colno: event.colno,
-                error: event.error
+                // Error objects serialize to {} - keep message and stack
+                error: event.error ? { message: event.error.message, stack: event.error.stack } : null
             });
         });
 
         // Set up unhandled promise rejection handler
         window.addEventListener('unhandledrejection', (event) => {
-            this.error('Unhandled Promise Rejection', {
-                reason: event.reason,
-                promise: event.promise
+            const reason = event.reason;
+            this.error('App', 'Unhandled Promise Rejection', {
+                reason: reason instanceof Error
+                    ? { message: reason.message, stack: reason.stack }
+                    : String(reason)
             });
         });
 
-        this.info('Logger initialized', { level: this.currentLevel });
+        this.info('Logger', 'Logger initialized', { level: this.currentLevel });
     },
 
     /**
@@ -345,9 +348,11 @@ const ErrorHandler = {
      * Validate date
      */
     validateDate: function(dateStr, fieldName) {
-        const date = new Date(dateStr);
+        // Compare LOCAL calendar dates - new Date('YYYY-MM-DD') is UTC midnight,
+        // which rejected today's date between 0:00 and 2:00 Czech time
+        const date = DateUtil.parse(dateStr);
 
-        if (isNaN(date.getTime())) {
+        if (!date) {
             Logger.warn('Validation', 'Invalid date', { fieldName, dateStr });
             return {
                 valid: false,
@@ -356,7 +361,7 @@ const ErrorHandler = {
         }
 
         // Check if date is not in future
-        if (date > new Date()) {
+        if (DateUtil.toDateStr(date) > DateUtil.today()) {
             Logger.warn('Validation', 'Date in future', { fieldName, dateStr });
             return {
                 valid: false,

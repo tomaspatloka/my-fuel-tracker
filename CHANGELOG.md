@@ -1,5 +1,48 @@
 # FuelTracker - Changelog
 
+## Verze 2.8.0 - Audit a opravy (29.9.2026)
+
+### Ochrana dat
+- **Cloud sync slučuje místo přepisování** - záznamy se spojují podle `id`, novější `updatedAt` vyhraje, smazání se pamatuje (tombstones, 1 rok). Každá synchronizace = stáhnout → sloučit → odeslat.
+- **Revize na serveru (409 Conflict)** - odeslání nad starou verzí dat server odmítne, aplikace znovu stáhne a sloučí.
+- **Offline změny** se zapamatují a odešlou po připojení / při dalším spuštění.
+- **Import** jde přes validaci a migraci, ptá se a předem zálohuje; Sync ID ze souboru jen po potvrzení.
+- **Obnova z jiného zařízení** nejdřív ověří, že data existují; ID se přepne až po úspěchu, lokální data se zazálohují.
+- **Zálohy v zařízení** - poslední 3 automatické zálohy s obnovou v Nastavení.
+- Zálohy poškozených dat se už nemažou při plném úložišti; žádost o trvalé úložiště (`navigator.storage.persist`).
+
+### Bezpečnost
+- Nové Sync ID: 128 bitů z `crypto.getRandomValues` (stará ID fungují dál).
+- API: validace ID a dat, limit 1 MB, bez `Access-Control-Allow-Origin: *`, zrušen GET s ID v URL, Sync ID se v logech maskuje.
+- XSS: escapování v logech, měně a Sync ID; ID záznamů se validují.
+- CSP doplněna o `object-src`, `base-uri`, `frame-ancestors`, `form-action`.
+
+### Výpočty
+- Řazení podle tachometru (správně i více tankování za den).
+- Jeden algoritmus spotřeby pro přehled, historii, statistiky i CSV.
+- „Palivo celkem" včetně prvního tankování, nově „Celkem na km" (palivo + servis).
+- Volba „Předchozí tankování nezapsáno" přeruší výpočet úseku.
+
+### Datum a platnosti
+- Lokální datum místo UTC (po půlnoci správné datum, dnešek jde uložit).
+- Platnost do = celý poslední den; hlásí se jen nejnovější záznam daného typu.
+- Upozornění i na Přehledu, nově servis podle km („Příští servis při km").
+
+### UX
+- Celková cena z účtenky, cena za litr se dopočítá; desetinná čárka.
+- Varování (ne zákaz) nad objem nádrže, kontrola skoku tachometru a duplicit.
+- Aktualizace přes lištu „Aktualizovat" místo automatického reloadu.
+- Klepnutí = úprava, swipe se nespustí při scrollování, povolený zoom.
+- CSV pro český Excel (středník, desetinná čárka).
+- Zůstává se na aktuální záložce (přepnutí tmavého režimu, smazání, výběr auta).
+
+### Technické
+- Opraven únik posluchačů `matchMedia` (násobily se při každé změně).
+- Nastavení se slučuje s výchozími hodnotami.
+- `_headers`: CSS/JS bez `immutable`, SW cachuje s `cache: 'reload'`; `_redirects` bez SPA fallbacku.
+- Testy: `npm test` (28 testů vč. dvou zařízení proti skutečné Pages Function), volitelné E2E v Playwright.
+- `wrangler pages deploy` místo zastaralého `pages publish`.
+
 ## Verze 2.1.0 - Quick Wins Update (24.1.2026)
 
 ### ✨ Nové funkce

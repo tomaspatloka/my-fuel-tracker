@@ -81,10 +81,10 @@ wrangler pages project create fuel-tracker
 
 ```bash
 # První nasazení
-wrangler pages publish . --project-name=fuel-tracker
+wrangler pages deploy . --project-name=fuel-tracker
 
 # Další nasazení
-wrangler pages publish .
+wrangler pages deploy .
 ```
 
 ## 📁 Struktura projektu pro deployment

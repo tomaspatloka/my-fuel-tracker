@@ -3,12 +3,63 @@
 /**
  * Application Version
  */
-const APP_VERSION = '2.7.2';
+const APP_VERSION = '2.8.0';
 
 /**
  * Changelog - Version History
  */
 const CHANGELOG = [
+    {
+        version: '2.8.0',
+        date: '2026-09-29',
+        changes: [
+            {
+                type: 'fix',
+                title: 'Cloud synchronizace už nemaže data',
+                description: 'Synchronizace data slučuje (záznam po záznamu) místo přepisování. Tankování zadané na jiném zařízení nebo offline se už neztratí. Při otevření aplikace se data nejdřív stáhnou a sloučí, teprve potom odešlou.'
+            },
+            {
+                type: 'fix',
+                title: 'Bezpečnější import a obnova',
+                description: 'Před importem, obnovou z jiného zařízení i obnovou ze zálohy se aplikace zeptá a automaticky zazálohuje současná data. Sync ID ze souboru se převezme jen po potvrzení.'
+            },
+            {
+                type: 'feature',
+                title: 'Zálohy v zařízení',
+                description: 'Nastavení > Data > Zálohy v zařízení: poslední 3 automatické zálohy s možností obnovy.'
+            },
+            {
+                type: 'feature',
+                title: 'Celková cena z účtenky',
+                description: 'Celkovou cenu jde zadat přímo (např. se slevou), cena za litr se dopočítá. Nově i volba "Předchozí tankování nezapsáno", aby zapomenuté tankování nepokazilo spotřebu.'
+            },
+            {
+                type: 'fix',
+                title: 'Přesnější spotřeba a náklady',
+                description: 'Záznamy se řadí podle tachometru (správně i víc tankování za den), všude se počítá stejným algoritmem, "Palivo celkem" už obsahuje i první tankování.'
+            },
+            {
+                type: 'fix',
+                title: 'Datum a platnost',
+                description: 'Po půlnoci se předvyplní správné datum a dnešek jde uložit. Dálniční známka / STK platí celý poslední den a po koupi nové se stará už nehlásí jako prošlá.'
+            },
+            {
+                type: 'feature',
+                title: 'Upozornění na přehledu a servis podle km',
+                description: 'Prošlé a brzy končící platnosti se ukazují i na Přehledu. U servisu jde zadat "Příští servis při km" a aplikace upozorní 1000 km předem.'
+            },
+            {
+                type: 'improvement',
+                title: 'Aktualizace bez ztráty rozepsaných dat',
+                description: 'Nová verze se už nenačte sama uprostřed zadávání - objeví se lišta s tlačítkem Aktualizovat.'
+            },
+            {
+                type: 'improvement',
+                title: 'Drobnosti',
+                description: 'Klepnutí na záznam ho otevře k úpravě, swipe se nespustí při posouvání, jde zvětšit písmo, CSV se správně otevře v českém Excelu, varování místo zákazu při větším objemu než nádrž a kontrola překlepu v tachometru.'
+            }
+        ]
+    },
     {
         version: '2.7.2',
         date: '2026-09-21',
@@ -227,21 +278,7 @@ const CHANGELOG = [
     }
 ];
 
-/**
- * XSS Protection - Escape HTML to prevent XSS attacks
- */
-function escapeHtml(text) {
-    if (text === null || text === undefined) return '';
-    const str = String(text);
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-    };
-    return str.replace(/[&<>"']/g, char => map[char]);
-}
+// escapeHtml(), isSafeId(), DateUtil and formatNumber() live in js/utils.js
 
 /**
  * DOM Helper - Safe DOM operations with error handling
@@ -367,6 +404,17 @@ const DomHelper = {
     }
 };
 
+// Currently shown tab - views refresh in place instead of jumping to the dashboard
+let currentTab = 'dashboard';
+
+const SERVICE_TYPES = {
+    service: { label: 'Servis / Opravy', icon: 'build' },
+    vignette: { label: 'Dálniční známky', icon: 'toll' },
+    insurance: { label: 'Pojištění', icon: 'security' },
+    inspection: { label: 'STK / Emise', icon: 'verified' },
+    other: { label: 'Ostatní', icon: 'more_horiz' }
+};
+
 document.addEventListener('DOMContentLoaded', function () {
     try {
         // Initialize Logger first
@@ -378,7 +426,16 @@ document.addEventListener('DOMContentLoaded', function () {
         Logger.info('App', 'Application starting');
 
         DataManager.init();
-        renderApp();
+        renderApp('dashboard');
+
+        // Cloud sync: refresh the view when merged data changed, and sync on start
+        // (this also sends changes made offline last time)
+        if (typeof CloudSync !== 'undefined') {
+            CloudSync.onDataChanged = refreshCurrentView;
+            if (CloudSync.isEnabled() && CloudSync.isOnline()) {
+                CloudSync.fullSync();
+            }
+        }
 
         Logger.info('App', 'Application initialized successfully');
     } catch (e) {
@@ -400,23 +457,20 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 });
 
-function renderApp() {
+function renderApp(tabName) {
     try {
         Logger.debug('App', 'Rendering app');
 
-        // Update version display
         updateVersionDisplay();
-
-        updateVehicleSelector();
 
         // Check if we have active vehicle
         const activeVehicle = DataManager.getActiveVehicle();
-        if (!activeVehicle && DataManager.state.vehicles.length > 0) {
-            DataManager.setActiveVehicle(DataManager.state.vehicles[0].id);
+        if (activeVehicle && DataManager.state.settings.activeVehicleId !== activeVehicle.id) {
+            DataManager.setActiveVehicle(activeVehicle.id);
         }
 
-        // Default tab
-        switchTab('dashboard');
+        updateVehicleSelector();
+        switchTab(tabName || currentTab || 'dashboard');
     } catch (e) {
         Logger.error('App', 'Failed to render app', {
             error: e.message,
@@ -427,13 +481,20 @@ function renderApp() {
 }
 
 /**
+ * Re-render the current tab (after save, delete, cloud merge...)
+ */
+function refreshCurrentView() {
+    updateVehicleSelector();
+    switchTab(currentTab || 'dashboard');
+}
+
+/**
  * Update version display in header
  */
 function updateVersionDisplay() {
     const versionEl = document.getElementById('appVersion');
     if (versionEl) {
         versionEl.textContent = `v${APP_VERSION}`;
-        Logger.debug('App', 'Version updated', { version: APP_VERSION });
     }
 }
 
@@ -441,19 +502,17 @@ function updateVersionDisplay() {
 function switchTab(tabName, event) {
     try {
         Logger.debug('Navigation', 'Switching tab', { tabName });
+        currentTab = tabName;
+
+        // Charts live only on the stats tab
+        if (tabName !== 'stats') {
+            destroyStatsCharts();
+        }
 
         // UI Update
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        if (event && event.currentTarget) {
-            event.currentTarget.classList.add('active');
-        } else {
-            // Find tab by onclick attribute approximation if no event
-            const btn = Array.from(document.querySelectorAll('.tab')).find(b => {
-                const onclick = b.getAttribute('onclick');
-                return onclick && onclick.includes(tabName);
-            });
-            if (btn) btn.classList.add('active');
-        }
+        document.querySelectorAll('.tab').forEach(t => {
+            t.classList.toggle('active', t.dataset.tab === tabName);
+        });
 
         // Render Content
         const contentEl = document.getElementById('mainContent');
@@ -464,16 +523,15 @@ function switchTab(tabName, event) {
         }
 
         // Show/Hide FAB
+        const fabBtn = fab.querySelector('.fab-main');
         if (tabName === 'dashboard' || tabName === 'refuel') {
             fab.style.display = 'flex';
-            const btn = fab.querySelector('.fab-main');
-            btn.onclick = () => openRefuelModal();
-            btn.innerHTML = '<span class="material-symbols-outlined">add</span>';
+            fabBtn.onclick = () => openRefuelModal();
+            fabBtn.setAttribute('aria-label', 'Nové tankování');
         } else if (tabName === 'service') {
             fab.style.display = 'flex';
-            const btn = fab.querySelector('.fab-main');
-            btn.onclick = () => openServiceModal();
-            btn.innerHTML = '<span class="material-symbols-outlined">add</span>';
+            fabBtn.onclick = () => openServiceModal();
+            fabBtn.setAttribute('aria-label', 'Nový servisní záznam');
         } else {
             fab.style.display = 'none';
         }
@@ -489,6 +547,7 @@ function switchTab(tabName, event) {
                 <button class="button filled-button" onclick="switchTab('garage')">Přejít do Garáže</button>
             </div>
         `;
+            fab.style.display = 'none';
             return;
         }
 
@@ -520,7 +579,6 @@ function switchTab(tabName, event) {
         });
         showNotification('Chyba při přepínání záložky');
 
-        // Try to recover by showing error message
         const contentEl = document.getElementById('mainContent');
         if (contentEl) {
             contentEl.innerHTML = `
@@ -536,14 +594,15 @@ function switchTab(tabName, event) {
 }
 
 function switchVehicle(id) {
-    if (id) {
+    if (id && DataManager.getVehicle(id)) {
         DataManager.setActiveVehicle(id);
-        renderApp();
+        renderApp(); // stays on the current tab
     }
 }
 
 function updateVehicleSelector() {
     const selector = document.getElementById('vehicleSelector');
+    if (!selector) return;
     selector.innerHTML = '';
     const vehicles = DataManager.getVehicles();
     const active = DataManager.getActiveVehicle();
@@ -551,6 +610,7 @@ function updateVehicleSelector() {
     if (vehicles.length === 0) {
         const opt = document.createElement('option');
         opt.text = "Žádné auto";
+        opt.value = '';
         selector.add(opt);
         return;
     }
@@ -565,7 +625,73 @@ function updateVehicleSelector() {
 }
 
 // === Main App Logic ===
-// Updated to support validation and dynamic currency
+
+function pluralDays(n) {
+    if (n === 1) return '1 den';
+    if (n >= 2 && n <= 4) return `${n} dny`;
+    return `${n} dní`;
+}
+
+/**
+ * Alerts: expired / soon expiring validity and services due by km.
+ * Shown on the dashboard and on the service tab.
+ */
+function renderAlertsHtml(vehicle, linkToService = false) {
+    const expired = DataManager.getExpiredServices(vehicle.id);
+    const expiring = DataManager.getExpiringServices(vehicle.id, 30);
+    const dueKm = DataManager.getServicesDueByKm(vehicle.id, 1000);
+
+    if (expired.length === 0 && expiring.length === 0 && dueKm.length === 0) return '';
+
+    const today = DateUtil.today();
+    const typeLabel = s => (SERVICE_TYPES[s.type] || SERVICE_TYPES.other).label;
+
+    const items = [];
+    expired.forEach(s => {
+        items.push(`
+            <div class="log-item" style="border-left: 3px solid var(--md-sys-color-error); padding-left: 12px; margin-bottom: 8px;">
+                <div>
+                    <div class="log-main" style="color: var(--md-sys-color-error);">VYPRŠELO: ${escapeHtml(s.description || typeLabel(s))}</div>
+                    <div class="log-sub">${escapeHtml(typeLabel(s))} • platnost skončila ${escapeHtml(DateUtil.format(s.validUntil))}</div>
+                </div>
+            </div>`);
+    });
+    expiring.forEach(s => {
+        const daysLeft = DateUtil.daysBetween(today, s.validUntil);
+        const when = daysLeft === 0 ? 'dnes platí naposledy' : `zbývá ${pluralDays(daysLeft)}`;
+        items.push(`
+            <div class="log-item" style="border-left: 3px solid #ff9800; padding-left: 12px; margin-bottom: 8px;">
+                <div>
+                    <div class="log-main" style="color: #e65100;">Brzy vyprší: ${escapeHtml(s.description || typeLabel(s))}</div>
+                    <div class="log-sub">${escapeHtml(when)} (do ${escapeHtml(DateUtil.format(s.validUntil))})</div>
+                </div>
+            </div>`);
+    });
+    dueKm.forEach(({ service, remainingKm }) => {
+        const overdue = remainingKm <= 0;
+        const text = overdue
+            ? `po termínu o ${formatNumber(-remainingKm)} km`
+            : `za ${formatNumber(remainingKm)} km`;
+        items.push(`
+            <div class="log-item" style="border-left: 3px solid ${overdue ? 'var(--md-sys-color-error)' : '#ff9800'}; padding-left: 12px; margin-bottom: 8px;">
+                <div>
+                    <div class="log-main" style="color: ${overdue ? 'var(--md-sys-color-error)' : '#e65100'};">Servis ${escapeHtml(text)}: ${escapeHtml(service.description || typeLabel(service))}</div>
+                    <div class="log-sub">naplánováno při ${escapeHtml(formatNumber(service.nextOdometer))} km</div>
+                </div>
+            </div>`);
+    });
+
+    return `
+        <div class="card" style="margin-bottom: 16px; border-left: 4px solid var(--md-sys-color-error); ${linkToService ? 'cursor: pointer;' : ''}"
+            ${linkToService ? `onclick="switchTab('service')"` : ''}>
+            <h3 style="font-size: 1rem; margin-bottom: 12px; color: var(--md-sys-color-error); display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined">warning</span>
+                Upozornění
+            </h3>
+            ${items.join('')}
+        </div>
+    `;
+}
 
 function renderDashboard(vehicle) {
     const stats = DataManager.calculateStats(vehicle.id);
@@ -575,26 +701,30 @@ function renderDashboard(vehicle) {
     const safeCurrency = escapeHtml(currency);
     const consumptionMap = DataManager.calculateConsumptionForRefuels(vehicle.id);
 
+    const avgCons = stats && stats.avgCons !== null ? formatNumber(stats.avgCons, 1) : '--';
+    const costPerKm = stats && stats.costPerKm !== null ? formatNumber(stats.costPerKm, 2) : '--';
+
     const content = `
+        ${renderAlertsHtml(vehicle, true)}
         <div class="card card-elevated">
             <div class="card-header">
                 <h2 class="card-title">
                     <span class="material-symbols-outlined">analytics</span>
                     Přehled - ${escapeHtml(vehicle.name)}
                 </h2>
-                <span style="font-size: 0.8rem; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); padding: 4px 8px; border-radius: 8px;">
+                ${vehicle.engine ? `<span style="font-size: 0.8rem; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); padding: 4px 8px; border-radius: 8px;">
                     ${escapeHtml(vehicle.engine)}
-                </span>
+                </span>` : ''}
             </div>
 
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value">${stats ? escapeHtml(stats.avgCons) : '--'}</div>
+                    <div class="stat-value">${escapeHtml(avgCons)}</div>
                     <div class="stat-label">Ø Spotřeba (l/100km)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${stats ? escapeHtml(stats.costPerKm) : '--'}</div>
-                    <div class="stat-label">Cena/km (${safeCurrency})</div>
+                    <div class="stat-value">${escapeHtml(costPerKm)}</div>
+                    <div class="stat-label">Palivo na km (${safeCurrency})</div>
                 </div>
             </div>
 
@@ -608,7 +738,7 @@ function renderDashboard(vehicle) {
         </div>
     `;
     document.getElementById('mainContent').innerHTML = content;
-    attachSwipeListeners();
+    attachRefuelSwipeListeners();
 }
 
 function renderRefuelHistory(vehicle) {
@@ -631,24 +761,28 @@ function renderRefuelHistory(vehicle) {
                     Historie tankování
                 </h2>
             </div>
+            ${logs.length > 0 ? `<p style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px;">Klepnutím upravíte, tažením doleva smažete.</p>` : ''}
             <div class="history-list">
                 ${listContent}
             </div>
         </div>
     `;
     document.getElementById('mainContent').innerHTML = content;
-
-    // Attach Swipe Listeners
-    attachSwipeListeners();
+    attachRefuelSwipeListeners();
 }
 
 // Helper to create HTML for swipe item
 function createSwipeableLogItem(log, currency, consumption = null) {
     const safeId = escapeHtml(log.id);
     const safeCurrency = escapeHtml(currency);
-    const consumptionDisplay = consumption !== null ? `${escapeHtml(consumption)} l/100km` : '--';
+    const consumptionDisplay = (consumption !== null && consumption !== undefined)
+        ? `${escapeHtml(formatNumber(consumption, 1))} l/100km` : '--';
+    const flags = [];
+    if (!log.isFullTank) flags.push('částečné');
+    if (log.missedPrevious) flags.push('předchozí nezapsáno');
+
     return `
-    <div class="swipe-container" id="log-${safeId}" data-id="${safeId}">
+    <div class="swipe-container refuel-item" id="log-${safeId}" data-id="${safeId}">
         <div class="swipe-actions-left">
             <span class="material-symbols-outlined">edit</span>
         </div>
@@ -657,12 +791,12 @@ function createSwipeableLogItem(log, currency, consumption = null) {
         </div>
         <div class="swipe-content log-item">
             <div style="flex: 1;">
-                <div class="log-main">${escapeHtml(formatDate(log.date))}</div>
-                <div class="log-sub">${escapeHtml(log.odometer)} km • ${escapeHtml(log.pricePerLiter)} ${safeCurrency}/l</div>
+                <div class="log-main">${escapeHtml(DateUtil.format(log.date))}${flags.length ? ` <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">(${escapeHtml(flags.join(', '))})</span>` : ''}</div>
+                <div class="log-sub">${escapeHtml(formatNumber(log.odometer))} km • ${escapeHtml(formatNumber(log.pricePerLiter, 2))} ${safeCurrency}/l</div>
             </div>
             <div style="text-align: right;">
-                <div class="log-value">${escapeHtml(log.liters)} l</div>
-                <div class="log-sub">${escapeHtml(log.totalPrice)} ${safeCurrency}</div>
+                <div class="log-value">${escapeHtml(formatNumber(log.liters, 2))} l</div>
+                <div class="log-sub">${escapeHtml(formatNumber(log.totalPrice, 2))} ${safeCurrency}</div>
                 <div class="log-consumption" style="font-size: 0.75rem; color: var(--md-sys-color-primary); font-weight: 500; margin-top: 2px;">${consumptionDisplay}</div>
             </div>
         </div>
@@ -670,109 +804,157 @@ function createSwipeableLogItem(log, currency, consumption = null) {
     `;
 }
 
-// === Swipe Logic ===
-// Global swipe state to avoid memory leaks from multiple event listeners
+// === Swipe Logic (shared by refuel and service lists) ===
+// Tap = edit, swipe right = edit, swipe left = delete (with confirmation).
+// The swipe only starts after a clearly horizontal move, so scrolling the
+// list up and down can no longer trigger edit/delete by accident.
 const swipeState = {
-    isDragging: false,
+    active: null,     // .swipe-content element being dragged
+    id: null,
+    onEdit: null,
+    onDelete: null,
     startX: 0,
+    startY: 0,
     currentX: 0,
-    activeContent: null,
-    activeId: null
+    locked: null,     // 'h' (swipe) or 'v' (scroll)
+    moved: false,
+    suppressClickUntil: 0
 };
 
-// Initialize global mouse/touch handlers once
 let swipeHandlersInitialized = false;
 
 function initGlobalSwipeHandlers() {
     if (swipeHandlersInitialized) return;
     swipeHandlersInitialized = true;
 
-    // Global mouse move handler
-    window.addEventListener('mousemove', (e) => {
-        if (!swipeState.isDragging || !swipeState.activeContent) return;
-        swipeState.currentX = e.clientX - swipeState.startX;
-        if (swipeState.currentX > 100) swipeState.currentX = 100;
-        if (swipeState.currentX < -100) swipeState.currentX = -100;
-        swipeState.activeContent.style.transform = `translateX(${swipeState.currentX}px)`;
-    });
+    window.addEventListener('mousemove', (e) => onSwipeMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', () => onSwipeEnd());
+}
 
-    // Global mouse up handler
-    window.addEventListener('mouseup', () => {
-        if (swipeState.isDragging && swipeState.activeContent) {
-            swipeState.isDragging = false;
-            swipeState.activeContent.style.transition = 'transform 0.2s ease-out';
-            handleSwipeEnd(swipeState.activeContent, swipeState.currentX, swipeState.activeId);
-            swipeState.currentX = 0;
-            swipeState.activeContent = null;
-            swipeState.activeId = null;
+function onSwipeStart(content, id, onEdit, onDelete, x, y) {
+    swipeState.active = content;
+    swipeState.id = id;
+    swipeState.onEdit = onEdit;
+    swipeState.onDelete = onDelete;
+    swipeState.startX = x;
+    swipeState.startY = y;
+    swipeState.currentX = 0;
+    swipeState.locked = null;
+    swipeState.moved = false;
+    content.style.transition = 'none';
+}
+
+function onSwipeMove(x, y) {
+    const s = swipeState;
+    if (!s.active) return;
+    const dx = x - s.startX;
+    const dy = y - s.startY;
+
+    if (!s.locked) {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        s.locked = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'h' : 'v';
+        if (s.locked === 'v') {
+            // User is scrolling - cancel the swipe
+            s.active.style.transform = 'translateX(0px)';
+            s.active = null;
+            s.suppressClickUntil = Date.now() + 400;
+            return;
         }
-    });
+    }
+
+    s.moved = true;
+    s.currentX = Math.max(-100, Math.min(100, dx));
+    s.active.style.transform = `translateX(${s.currentX}px)`;
 }
 
-function attachSwipeListeners() {
-    initGlobalSwipeHandlers();
+function onSwipeEnd() {
+    const s = swipeState;
+    if (!s.active) return;
+    const el = s.active;
+    const distance = s.currentX;
+    const { id, onEdit, onDelete } = s;
 
-    const items = document.querySelectorAll('.swipe-container:not([data-swipe-initialized])');
-    items.forEach(item => {
-        item.setAttribute('data-swipe-initialized', 'true');
+    el.style.transition = 'transform 0.2s ease-out';
+    el.style.transform = 'translateX(0px)';
+    if (s.moved) s.suppressClickUntil = Date.now() + 400;
+    s.active = null;
 
-        const content = item.querySelector('.swipe-content');
-        const id = item.dataset.id;
-
-        // Touch Events
-        content.addEventListener('touchstart', (e) => {
-            swipeState.startX = e.touches[0].clientX;
-            swipeState.isDragging = true;
-            swipeState.activeContent = content;
-            swipeState.activeId = id;
-            content.style.transition = 'none';
-        });
-
-        content.addEventListener('touchmove', (e) => {
-            if (!swipeState.isDragging || swipeState.activeContent !== content) return;
-            swipeState.currentX = e.touches[0].clientX - swipeState.startX;
-            if (swipeState.currentX > 100) swipeState.currentX = 100;
-            if (swipeState.currentX < -100) swipeState.currentX = -100;
-            content.style.transform = `translateX(${swipeState.currentX}px)`;
-        });
-
-        content.addEventListener('touchend', () => {
-            if (swipeState.activeContent !== content) return;
-            swipeState.isDragging = false;
-            content.style.transition = 'transform 0.2s ease-out';
-            handleSwipeEnd(content, swipeState.currentX, id);
-            swipeState.currentX = 0;
-            swipeState.activeContent = null;
-            swipeState.activeId = null;
-        });
-
-        // Mouse Events (for Desktop testing)
-        content.addEventListener('mousedown', (e) => {
-            swipeState.startX = e.clientX;
-            swipeState.isDragging = true;
-            swipeState.activeContent = content;
-            swipeState.activeId = id;
-            content.style.transition = 'none';
-        });
-    });
-}
-
-function handleSwipeEnd(element, distance, id) {
     if (distance > 50) {
-        // Swiped Right -> Edit
-        element.style.transform = `translateX(0px)`; // Reset visually
-        openRefuelModal(id);
+        onEdit(id);
     } else if (distance < -50) {
-        // Swiped Left -> Delete
-        element.style.transform = `translateX(0px)`;
-        deleteRefuel(id);
-    } else {
-        // Cancel
-        element.style.transform = `translateX(0px)`;
+        onDelete(id);
     }
 }
 
+function attachSwipeListeners(selector, onEdit, onDelete) {
+    initGlobalSwipeHandlers();
+
+    document.querySelectorAll(`${selector}:not([data-swipe-initialized])`).forEach(item => {
+        item.setAttribute('data-swipe-initialized', 'true');
+        const content = item.querySelector('.swipe-content');
+        const id = item.dataset.id;
+        if (!content) return;
+
+        content.addEventListener('touchstart', (e) => {
+            onSwipeStart(content, id, onEdit, onDelete, e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: true });
+
+        content.addEventListener('touchmove', (e) => {
+            onSwipeMove(e.touches[0].clientX, e.touches[0].clientY);
+            if (swipeState.locked === 'h' && swipeState.active && e.cancelable) {
+                e.preventDefault(); // don't scroll the page while swiping
+            }
+        }, { passive: false });
+
+        content.addEventListener('touchend', () => onSwipeEnd());
+        content.addEventListener('touchcancel', () => {
+            if (swipeState.active === content) {
+                content.style.transform = 'translateX(0px)';
+                swipeState.active = null;
+            }
+        });
+
+        content.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            onSwipeStart(content, id, onEdit, onDelete, e.clientX, e.clientY);
+        });
+
+        // Tap / click = edit
+        content.addEventListener('click', () => {
+            if (Date.now() < swipeState.suppressClickUntil) return;
+            onEdit(id);
+        });
+    });
+}
+
+function attachRefuelSwipeListeners() {
+    attachSwipeListeners('.refuel-item', openRefuelModal, deleteRefuel);
+}
+
+// Kept for compatibility with older code paths
+function handleSwipeEnd(element, distance, id) {
+    element.style.transform = 'translateX(0px)';
+    if (distance > 50) openRefuelModal(id);
+    else if (distance < -50) deleteRefuel(id);
+}
+
 // === Modal Logic ===
+
+// true = the total price was typed by the user (from the receipt) and is the source of truth
+let refuelTotalManual = false;
+
+/** Parse a number typed with a decimal comma or dot ("36,90" or "36.90") */
+function parseNum(value) {
+    if (value === null || value === undefined) return NaN;
+    const str = String(value).trim().replace(/\s/g, '').replace(',', '.');
+    if (str === '') return NaN;
+    return Number(str);
+}
+
+function roundTo(value, decimals) {
+    const f = Math.pow(10, decimals);
+    return Math.round(value * f) / f;
+}
 
 function openRefuelModal(editId = null) {
     const activeVehicle = DataManager.getActiveVehicle();
@@ -782,7 +964,7 @@ function openRefuelModal(editId = null) {
     }
 
     const modalTitle = document.getElementById('refuelModalTitle');
-    const currency = DataManager.state.settings.currency;
+    const hint = document.getElementById('refuelOdoHint');
 
     document.getElementById('refuelVehicleId').value = activeVehicle.id;
 
@@ -792,50 +974,82 @@ function openRefuelModal(editId = null) {
         if (!log) return;
 
         modalTitle.textContent = 'Upravit tankování';
+        document.getElementById('refuelVehicleId').value = log.vehicleId;
         document.getElementById('refuelId').value = log.id;
         document.getElementById('refuelDate').value = log.date;
         document.getElementById('refuelOdo').value = log.odometer;
         document.getElementById('refuelLiters').value = log.liters;
         document.getElementById('refuelPrice').value = log.pricePerLiter;
         document.getElementById('refuelTotal').value = log.totalPrice;
-        document.getElementById('refuelFull').checked = log.isFullTank;
+        document.getElementById('refuelFull').checked = !!log.isFullTank;
+        document.getElementById('refuelMissed').checked = !!log.missedPrevious;
         document.getElementById('refuelNote').value = log.notes || '';
+        hint.textContent = '';
+        // A total that differs from liters x price was typed from a receipt
+        refuelTotalManual = Math.abs(log.totalPrice - log.liters * log.pricePerLiter) > 0.05;
     } else {
         // Add Mode
         modalTitle.textContent = 'Nové tankování';
         document.getElementById('refuelId').value = '';
-        document.getElementById('refuelDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('refuelDate').value = DateUtil.today();
 
-        // Auto-fill ODO
         const logs = DataManager.getRefuels(activeVehicle.id);
-        const lastOdo = logs.length > 0 ? logs[0].odometer : 0;
+        const last = logs.length > 0 ? logs[0] : null;
         document.getElementById('refuelOdo').value = '';
-        document.getElementById('refuelOdoHint').textContent = `Poslední stav: ${lastOdo} km`;
-        document.getElementById('refuelOdo').placeholder = lastOdo;
+        document.getElementById('refuelOdo').placeholder = last ? last.odometer : '';
+        hint.textContent = last
+            ? `Poslední stav: ${formatNumber(last.odometer)} km (${DateUtil.format(last.date)})`
+            : '';
 
         document.getElementById('refuelLiters').value = '';
         document.getElementById('refuelPrice').value = '';
         document.getElementById('refuelTotal').value = '';
         document.getElementById('refuelFull').checked = true;
+        document.getElementById('refuelMissed').checked = false;
         document.getElementById('refuelNote').value = '';
+        refuelTotalManual = false;
     }
 
-    // Pass currency to labels if needed (optional optimization)
-    // Show Modal
     document.getElementById('refuelModal').classList.add('active');
 }
 
-function calculateTotal() {
-    const liters = parseFloat(document.getElementById('refuelLiters').value);
-    const price = parseFloat(document.getElementById('refuelPrice').value);
-    const totalEl = document.getElementById('refuelTotal');
+/** Liters changed: keep the typed total (recompute price) or recompute total */
+function onRefuelLitersInput() {
+    const liters = parseNum(document.getElementById('refuelLiters').value);
+    const price = parseNum(document.getElementById('refuelPrice').value);
+    const total = parseNum(document.getElementById('refuelTotal').value);
 
-    if (!isNaN(liters) && !isNaN(price)) {
-        const total = (liters * price).toFixed(1);
-        totalEl.value = total;
-    } else {
-        totalEl.value = '';
+    if (refuelTotalManual && total > 0 && liters > 0) {
+        document.getElementById('refuelPrice').value = roundTo(total / liters, 2);
+    } else if (liters > 0 && price > 0) {
+        document.getElementById('refuelTotal').value = roundTo(liters * price, 2);
+    } else if (!refuelTotalManual) {
+        document.getElementById('refuelTotal').value = '';
     }
+}
+
+/** Price per liter changed: total = liters x price */
+function onRefuelPriceInput() {
+    refuelTotalManual = false;
+    const liters = parseNum(document.getElementById('refuelLiters').value);
+    const price = parseNum(document.getElementById('refuelPrice').value);
+    document.getElementById('refuelTotal').value = (liters > 0 && price > 0) ? roundTo(liters * price, 2) : '';
+}
+
+/** Total typed from the receipt: price per liter = total / liters */
+function onRefuelTotalInput() {
+    const totalStr = document.getElementById('refuelTotal').value;
+    refuelTotalManual = String(totalStr).trim() !== '';
+    const liters = parseNum(document.getElementById('refuelLiters').value);
+    const total = parseNum(totalStr);
+    if (total > 0 && liters > 0) {
+        document.getElementById('refuelPrice').value = roundTo(total / liters, 2);
+    }
+}
+
+// Old name used by older markup
+function calculateTotal() {
+    onRefuelLitersInput();
 }
 
 function saveRefuelFromModal() {
@@ -845,52 +1059,47 @@ function saveRefuelFromModal() {
         const id = document.getElementById('refuelId').value;
         const vehicleId = document.getElementById('refuelVehicleId').value;
         const date = document.getElementById('refuelDate').value;
-        const odoStr = document.getElementById('refuelOdo').value;
-        const litersStr = document.getElementById('refuelLiters').value;
-        const priceStr = document.getElementById('refuelPrice').value;
-        const totalStr = document.getElementById('refuelTotal').value;
+        const odoStr = String(document.getElementById('refuelOdo').value).replace(/\s/g, '');
         const isFull = document.getElementById('refuelFull').checked;
-        const note = document.getElementById('refuelNote').value;
+        const missedPrevious = document.getElementById('refuelMissed').checked;
+        const note = document.getElementById('refuelNote').value.trim();
+        const currency = DataManager.state.settings.currency;
 
-        // Parse numbers
-        const odo = parseInt(odoStr);
-        const liters = parseFloat(litersStr);
-        const price = parseFloat(priceStr);
-        let total = parseFloat(totalStr);
+        const odo = parseInt(odoStr, 10);
+        const liters = parseNum(document.getElementById('refuelLiters').value);
+        let price = parseNum(document.getElementById('refuelPrice').value);
+        let total = parseNum(document.getElementById('refuelTotal').value);
 
-        // Auto-calculate if total is missing but we have liters and price
-        if ((!total || isNaN(total)) && liters && price) {
-            total = parseFloat((liters * price).toFixed(2));
+        // Fill in the missing value
+        if (!(total > 0) && liters > 0 && price > 0) {
+            total = roundTo(liters * price, 2);
+        }
+        if (!(price > 0) && liters > 0 && total > 0) {
+            price = roundTo(total / liters, 2);
         }
 
-        // Validation - Check for empty or invalid values
-        if (!odoStr || isNaN(odo)) {
+        if (!odoStr || isNaN(odo) || odo <= 0) {
             showNotification("Zadejte platný stav tachometru.");
-            Logger.warn('Refuel', 'Invalid odometer', { odo: odoStr });
             return;
         }
-
-        if (!litersStr || isNaN(liters) || liters <= 0) {
+        if (!(liters > 0)) {
             showNotification("Zadejte platné množství paliva.");
-            Logger.warn('Refuel', 'Invalid liters', { liters: litersStr });
             return;
         }
-
-        if (!priceStr || isNaN(price) || price <= 0) {
-            showNotification("Zadejte platnou cenu za litr.");
-            Logger.warn('Refuel', 'Invalid price', { price: priceStr });
+        if (!(price > 0)) {
+            showNotification("Zadejte cenu za litr nebo celkovou cenu.");
             return;
         }
-
-        if (!total || isNaN(total) || total <= 0) {
+        if (!(total > 0)) {
             showNotification("Celková cena není platná.");
-            Logger.warn('Refuel', 'Invalid total', { total: totalStr });
             return;
         }
-
         if (!date) {
             showNotification("Zadejte datum.");
-            Logger.warn('Refuel', 'Missing date');
+            return;
+        }
+        if (date > DateUtil.today()) {
+            showNotification("Datum nemůže být v budoucnosti.");
             return;
         }
 
@@ -901,69 +1110,55 @@ function saveRefuelFromModal() {
             return;
         }
 
-        // 1. Tank limit
-        if (vehicle.tankSize && liters > vehicle.tankSize) {
-            showNotification(`Chyba: Nádrž má pouze ${vehicle.tankSize} l!`);
-            Logger.warn('Refuel', 'Liters exceed tank size', {
-                liters,
-                tankSize: vehicle.tankSize
-            });
-            return;
+        // 1. Tank size - real tanks take a bit more than the nominal volume,
+        //    so only a clear typo (> 1.5x) is blocked, otherwise ask.
+        if (vehicle.tankSize) {
+            if (liters > vehicle.tankSize * 1.5) {
+                showNotification(`${formatNumber(liters, 2)} l je víc než 1,5× objem nádrže (${vehicle.tankSize} l). Zkontrolujte litry.`);
+                return;
+            }
+            if (liters > vehicle.tankSize &&
+                !confirm(`Natankováno ${formatNumber(liters, 2)} l je víc než objem nádrže (${vehicle.tankSize} l).\n\nTo se může stát (hrdlo, rezerva). Uložit?`)) {
+                return;
+            }
         }
 
-        // 2. Price limit
-        // Rozsah se nastavuje v Nastavení > Tankování, takže hláška i limit
-        // ukazují přesně to, co je tam vidět - žádná skrytá tolerance navíc.
+        // 2. Price limit (set in Settings > Tankování)
         const minPrice = DataManager.state.settings.minPrice || 0;
         const maxPrice = DataManager.state.settings.maxPrice || 1000;
         if (price < minPrice || price > maxPrice) {
-            showNotification(`Cena mimo limit (${minPrice}-${maxPrice} Kč/l)`);
-            Logger.warn('Refuel', 'Price out of range', {
-                price,
-                minPrice,
-                maxPrice
-            });
+            showNotification(`Cena ${formatNumber(price, 2)} ${currency}/l je mimo limit (${minPrice}-${maxPrice} ${currency}/l). Limit změníte v Nastavení.`);
             return;
         }
 
-        // 3. Odo Logic check - validate based on DATE, not insertion order
-        // This allows adding old forgotten refuels with past dates
-        const logs = DataManager.getRefuels(vehicleId);
-        if (logs.length > 0) {
-            // Find where this refuel would fit chronologically based on date
-            const newDate = new Date(date);
+        // 3. Odometer must fit the date order (works for old forgotten refuels too)
+        const others = DataManager.getRefuels(vehicleId).filter(r => r.id !== id);
 
-            // Get all other refuels (exclude current one if editing)
-            const otherLogs = id ? logs.filter(r => r.id !== id) : logs;
+        const duplicate = others.find(r => r.odometer === odo);
+        if (duplicate) {
+            showNotification(`Tankování se stavem ${formatNumber(odo)} km už existuje (${DateUtil.format(duplicate.date)}).`);
+            return;
+        }
 
-            // Find the refuel immediately before this date (older)
-            const prevRefuel = otherLogs.find(r => new Date(r.date) < newDate);
-            // Find the refuel immediately after this date (newer) - reverse search
-            const nextRefuel = [...otherLogs].reverse().find(r => new Date(r.date) > newDate);
+        const olderHigher = others.filter(r => r.date < date && r.odometer > odo)
+            .sort((a, b) => b.odometer - a.odometer)[0];
+        if (olderHigher) {
+            showNotification(`Tachometr musí být vyšší než ${formatNumber(olderHigher.odometer)} km (tankování z ${DateUtil.format(olderHigher.date)}).`);
+            return;
+        }
 
-            // Validate: odometer must be greater than previous (older) refuel
-            if (prevRefuel && odo <= prevRefuel.odometer) {
-                showNotification(`Tachometr musí být > ${prevRefuel.odometer} km (tankování z ${formatDate(prevRefuel.date)})`);
-                Logger.warn('Refuel', 'Odometer must be greater than previous by date', {
-                    newOdo: odo,
-                    newDate: date,
-                    prevOdo: prevRefuel.odometer,
-                    prevDate: prevRefuel.date
-                });
-                return;
-            }
+        const newerLower = others.filter(r => r.date > date && r.odometer < odo)
+            .sort((a, b) => a.odometer - b.odometer)[0];
+        if (newerLower) {
+            showNotification(`Tachometr musí být nižší než ${formatNumber(newerLower.odometer)} km (tankování z ${DateUtil.format(newerLower.date)}).`);
+            return;
+        }
 
-            // Validate: odometer must be less than next (newer) refuel
-            if (nextRefuel && odo >= nextRefuel.odometer) {
-                showNotification(`Tachometr musí být < ${nextRefuel.odometer} km (tankování z ${formatDate(nextRefuel.date)})`);
-                Logger.warn('Refuel', 'Odometer must be less than next by date', {
-                    newOdo: odo,
-                    newDate: date,
-                    nextOdo: nextRefuel.odometer,
-                    nextDate: nextRefuel.date
-                });
-                return;
-            }
+        // 4. Typo check - unusually long distance since the previous refuel
+        const previous = others.filter(r => r.odometer < odo).sort((a, b) => b.odometer - a.odometer)[0];
+        if (previous && odo - previous.odometer > 2000 && !missedPrevious &&
+            !confirm(`Od předchozího tankování (${formatNumber(previous.odometer)} km) je to ${formatNumber(odo - previous.odometer)} km.\n\nJe stav tachometru ${formatNumber(odo)} km správně?\n(Pokud jste nějaké tankování nezapsali, zaškrtněte "Předchozí tankování nezapsáno".)`)) {
+            return;
         }
 
         const data = {
@@ -971,27 +1166,22 @@ function saveRefuelFromModal() {
             vehicleId,
             date,
             odometer: odo,
-            liters,
-            pricePerLiter: price,
-            totalPrice: total,
+            liters: roundTo(liters, 2),
+            pricePerLiter: roundTo(price, 3),
+            totalPrice: roundTo(total, 2),
             isFullTank: isFull,
+            missedPrevious,
             notes: note
         };
 
         let success = false;
         if (id) {
             success = DataManager.updateRefuel(data);
-            if (success) {
-                showNotification('Záznam upraven');
-                Logger.info('Refuel', 'Refuel updated from modal', { refuelId: id });
-            }
+            if (success) showNotification('Záznam upraven');
         } else {
             const result = DataManager.addRefuel(data);
             success = result !== null;
-            if (success) {
-                showNotification('Záznam uložen');
-                Logger.info('Refuel', 'Refuel added from modal', { refuelId: result.id });
-            }
+            if (success) showNotification('Záznam uložen');
         }
 
         if (!success) {
@@ -1000,25 +1190,7 @@ function saveRefuelFromModal() {
         }
 
         closeModal('refuelModal');
-
-        // Refresh
-        try {
-            const currentTab = document.querySelector('.tab.active');
-            if (currentTab) {
-                const onclick = currentTab.getAttribute('onclick');
-                if (onclick && onclick.includes('dashboard')) {
-                    renderDashboard(vehicle);
-                } else if (onclick && onclick.includes('refuel')) {
-                    renderRefuelHistory(vehicle);
-                }
-            }
-        } catch (refreshError) {
-            Logger.error('Refuel', 'Failed to refresh view after save', {
-                error: refreshError.message
-            });
-            // Page still works, just refresh whole app
-            renderApp();
-        }
+        refreshCurrentView();
     } catch (e) {
         Logger.error('Refuel', 'Failed to save refuel from modal', {
             error: e.message,
@@ -1030,18 +1202,13 @@ function saveRefuelFromModal() {
 
 function deleteRefuel(id) {
     try {
-        if (confirm("Opravdu smazat tento záznam?")) {
-            Logger.info('Refuel', 'Deleting refuel', { refuelId: id });
-
+        const log = DataManager.getRefuel(id);
+        const label = log ? ` z ${DateUtil.format(log.date)} (${formatNumber(log.liters, 2)} l)` : '';
+        if (confirm(`Opravdu smazat tankování${label}?`)) {
             const success = DataManager.deleteRefuel(id);
             if (success) {
                 showNotification("Záznam smazán");
-                const activeVehicle = DataManager.getActiveVehicle();
-                if (activeVehicle) {
-                    renderRefuelHistory(activeVehicle);
-                } else {
-                    renderApp();
-                }
+                refreshCurrentView(); // stays on the tab the user is on
             } else {
                 showNotification("Chyba při mazání záznamu");
             }
@@ -1049,7 +1216,6 @@ function deleteRefuel(id) {
     } catch (e) {
         Logger.error('Refuel', 'Failed to delete refuel', {
             error: e.message,
-            stack: e.stack,
             refuelId: id
         });
         showNotification('Chyba při mazání záznamu');
@@ -1062,10 +1228,13 @@ function renderStats(vehicle) {
     const serviceCosts = DataManager.calculateServiceCosts(vehicle.id);
     const refuels = DataManager.getRefuels(vehicle.id);
     const currency = DataManager.state.settings.currency;
+    const safeCurrency = escapeHtml(currency);
 
-    // Calculate total costs (fuel + service)
-    const fuelCost = stats ? parseFloat(stats.totalCost) : 0;
+    // Total costs (fuel incl. the first refuel + service)
+    const fuelCost = stats ? stats.totalSpent : 0;
     const totalCost = fuelCost + serviceCosts.total;
+    const distanceDriven = stats ? stats.distanceDriven : 0;
+    const totalCostPerKm = distanceDriven > 0 ? totalCost / distanceDriven : null;
 
     // Calculate fuel price statistics
     const fuelPriceStats = calculateFuelPriceStats(refuels);
@@ -1077,15 +1246,23 @@ function renderStats(vehicle) {
                 Podrobné statistiky
             </h2>
 
-            ${stats ? `
+            ${stats && stats.hasConsumption ? `
             <h3 style="font-size: 1rem; margin: 16px 0 12px; color: var(--md-sys-color-primary);">Spotřeba paliva</h3>
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value" style="color: var(--md-sys-color-success);">${stats.minCons}</div>
+                    <div class="stat-value">${escapeHtml(formatNumber(stats.avgCons, 1))}</div>
+                    <div class="stat-label">Průměr (l/100km)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${escapeHtml(formatNumber(stats.costPerKm, 2))}</div>
+                    <div class="stat-label">Palivo na km (${safeCurrency})</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--md-sys-color-success);">${escapeHtml(formatNumber(stats.minCons, 1))}</div>
                     <div class="stat-label">Nejlepší (l/100km)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value" style="color: var(--md-sys-color-error);">${stats.maxCons}</div>
+                    <div class="stat-value" style="color: var(--md-sys-color-error);">${escapeHtml(formatNumber(stats.maxCons, 1))}</div>
                     <div class="stat-label">Nejhorší (l/100km)</div>
                 </div>
             </div>
@@ -1095,7 +1272,7 @@ function renderStats(vehicle) {
             ${renderSeasonStat('Léto', stats.seasonal.summer, currency)}
             ${renderSeasonStat('Podzim', stats.seasonal.autumn, currency)}
             ${renderSeasonStat('Zima', stats.seasonal.winter, currency)}
-            ` : '<p style="color: var(--md-sys-color-outline);">Nedostatek dat pro statistiku spotřeby.</p>'}
+            ` : '<p style="color: var(--md-sys-color-outline);">Nedostatek dat pro statistiku spotřeby. Spotřeba se počítá mezi dvěma plnými nádržemi.</p>'}
         </div>
 
         <!-- Fuel Price Statistics -->
@@ -1107,20 +1284,20 @@ function renderStats(vehicle) {
             </h3>
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value" style="color: var(--md-sys-color-success);">${fuelPriceStats.cheapest.toFixed(2)}</div>
-                    <div class="stat-label">Nejlevnější (${currency}/l)</div>
+                    <div class="stat-value" style="color: var(--md-sys-color-success);">${escapeHtml(formatNumber(fuelPriceStats.cheapest, 2))}</div>
+                    <div class="stat-label">Nejlevnější (${safeCurrency}/l)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value" style="color: var(--md-sys-color-error);">${fuelPriceStats.mostExpensive.toFixed(2)}</div>
-                    <div class="stat-label">Nejdražší (${currency}/l)</div>
+                    <div class="stat-value" style="color: var(--md-sys-color-error);">${escapeHtml(formatNumber(fuelPriceStats.mostExpensive, 2))}</div>
+                    <div class="stat-label">Nejdražší (${safeCurrency}/l)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${fuelPriceStats.average.toFixed(2)}</div>
-                    <div class="stat-label">Průměr (${currency}/l)</div>
+                    <div class="stat-value">${escapeHtml(formatNumber(fuelPriceStats.average, 2))}</div>
+                    <div class="stat-label">Průměr (${safeCurrency}/l)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${fuelPriceStats.last.toFixed(2)}</div>
-                    <div class="stat-label">Poslední (${currency}/l)</div>
+                    <div class="stat-value">${escapeHtml(formatNumber(fuelPriceStats.last, 2))}</div>
+                    <div class="stat-label">Poslední (${safeCurrency}/l)</div>
                 </div>
             </div>
         </div>
@@ -1134,22 +1311,25 @@ function renderStats(vehicle) {
             </h3>
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value">${totalCost.toLocaleString('cs-CZ')}</div>
-                    <div class="stat-label">Celkem (${currency})</div>
+                    <div class="stat-value">${escapeHtml(formatNumber(totalCost))}</div>
+                    <div class="stat-label">Celkem (${safeCurrency})</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${fuelCost.toLocaleString('cs-CZ')}</div>
-                    <div class="stat-label">Palivo (${currency})</div>
+                    <div class="stat-value">${escapeHtml(formatNumber(fuelCost))}</div>
+                    <div class="stat-label">Palivo (${safeCurrency})</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${serviceCosts.total.toLocaleString('cs-CZ')}</div>
-                    <div class="stat-label">Servis (${currency})</div>
+                    <div class="stat-value">${escapeHtml(formatNumber(serviceCosts.total))}</div>
+                    <div class="stat-label">Servis (${safeCurrency})</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${serviceCosts.count}</div>
-                    <div class="stat-label">Servisních záznamů</div>
+                    <div class="stat-value">${totalCostPerKm !== null ? escapeHtml(formatNumber(totalCostPerKm, 2)) : '--'}</div>
+                    <div class="stat-label">Celkem na km (${safeCurrency})</div>
                 </div>
             </div>
+            <p style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-top: 8px;">
+                Najeto ${escapeHtml(formatNumber(distanceDriven))} km (od prvního tankování) • ${serviceCosts.count} servisních záznamů
+            </p>
         </div>
 
         <!-- Chart: Costs Breakdown (Pie) -->
@@ -1203,11 +1383,11 @@ function renderStats(vehicle) {
             </div>
             <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--md-sys-color-outline-variant);">
                 <h4 style="font-size: 0.9rem; margin-bottom: 8px; color: var(--md-sys-color-on-surface-variant);">Rozpis nákladů:</h4>
-                ${serviceCosts.byType.service > 0 ? `<div class="log-item"><span>Servis / Opravy</span><span>${serviceCosts.byType.service.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
-                ${serviceCosts.byType.vignette > 0 ? `<div class="log-item"><span>Dálniční známky</span><span>${serviceCosts.byType.vignette.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
-                ${serviceCosts.byType.insurance > 0 ? `<div class="log-item"><span>Pojištění</span><span>${serviceCosts.byType.insurance.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
-                ${serviceCosts.byType.inspection > 0 ? `<div class="log-item"><span>STK / Emise</span><span>${serviceCosts.byType.inspection.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
-                ${serviceCosts.byType.other > 0 ? `<div class="log-item"><span>Ostatní</span><span>${serviceCosts.byType.other.toLocaleString('cs-CZ')} ${currency}</span></div>` : ''}
+                ${serviceCosts.byType.service > 0 ? `<div class="log-item"><span>Servis / Opravy</span><span>${serviceCosts.byType.service.toLocaleString('cs-CZ')} ${safeCurrency}</span></div>` : ''}
+                ${serviceCosts.byType.vignette > 0 ? `<div class="log-item"><span>Dálniční známky</span><span>${serviceCosts.byType.vignette.toLocaleString('cs-CZ')} ${safeCurrency}</span></div>` : ''}
+                ${serviceCosts.byType.insurance > 0 ? `<div class="log-item"><span>Pojištění</span><span>${serviceCosts.byType.insurance.toLocaleString('cs-CZ')} ${safeCurrency}</span></div>` : ''}
+                ${serviceCosts.byType.inspection > 0 ? `<div class="log-item"><span>STK / Emise</span><span>${serviceCosts.byType.inspection.toLocaleString('cs-CZ')} ${safeCurrency}</span></div>` : ''}
+                ${serviceCosts.byType.other > 0 ? `<div class="log-item"><span>Ostatní</span><span>${serviceCosts.byType.other.toLocaleString('cs-CZ')} ${safeCurrency}</span></div>` : ''}
             </div>
         </div>
         ` : ''}
@@ -1291,59 +1471,19 @@ function renderGarage() {
 // === Service Tab ===
 function renderService(vehicle) {
     const services = DataManager.getServices(vehicle.id);
-    const expiring = DataManager.getExpiringServices(vehicle.id, 30);
-    const expired = DataManager.getExpiredServices(vehicle.id);
     const costs = DataManager.calculateServiceCosts(vehicle.id);
     const currency = DataManager.state.settings.currency;
     const safeCurrency = escapeHtml(currency);
 
     // Group services by type for display
-    const serviceTypes = {
-        service: { label: 'Servis / Opravy', icon: 'build', items: [] },
-        vignette: { label: 'Dálniční známky', icon: 'toll', items: [] },
-        insurance: { label: 'Pojištění', icon: 'security', items: [] },
-        inspection: { label: 'STK / Emise', icon: 'verified', items: [] },
-        other: { label: 'Ostatní', icon: 'more_horiz', items: [] }
-    };
-
+    const groups = {};
+    Object.keys(SERVICE_TYPES).forEach(type => { groups[type] = []; });
     services.forEach(s => {
-        if (serviceTypes[s.type]) {
-            serviceTypes[s.type].items.push(s);
-        } else {
-            serviceTypes.other.items.push(s);
-        }
+        (groups[s.type] || groups.other).push(s);
     });
 
-    // Alerts section
-    let alertsHtml = '';
-    if (expired.length > 0 || expiring.length > 0) {
-        alertsHtml = `
-            <div class="card" style="margin-bottom: 16px; border-left: 4px solid var(--md-sys-color-error);">
-                <h3 style="font-size: 1rem; margin-bottom: 12px; color: var(--md-sys-color-error); display: flex; align-items: center; gap: 8px;">
-                    <span class="material-symbols-outlined">warning</span>
-                    Upozornění
-                </h3>
-                ${expired.map(s => `
-                    <div class="log-item" style="border-left: 3px solid var(--md-sys-color-error); padding-left: 12px; margin-bottom: 8px;">
-                        <div>
-                            <div class="log-main" style="color: var(--md-sys-color-error);">VYPRŠELO: ${escapeHtml(s.description)}</div>
-                            <div class="log-sub">Platnost do: ${escapeHtml(formatDate(s.validUntil))}</div>
-                        </div>
-                    </div>
-                `).join('')}
-                ${expiring.map(s => {
-            const daysLeft = Math.ceil((new Date(s.validUntil) - new Date()) / (1000 * 60 * 60 * 24));
-            return `
-                    <div class="log-item" style="border-left: 3px solid #ff9800; padding-left: 12px; margin-bottom: 8px;">
-                        <div>
-                            <div class="log-main" style="color: #ff9800;">Brzy vyprší: ${escapeHtml(s.description)}</div>
-                            <div class="log-sub">Zbývá ${escapeHtml(daysLeft)} dní (do ${escapeHtml(formatDate(s.validUntil))})</div>
-                        </div>
-                    </div>
-                `}).join('')}
-            </div>
-        `;
-    }
+    const costLine = (label, value) => value > 0
+        ? `<div>${label}: ${escapeHtml(formatNumber(value, 0))} ${safeCurrency}</div>` : '';
 
     // Costs summary
     const costsHtml = `
@@ -1354,7 +1494,7 @@ function renderService(vehicle) {
             </h3>
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value">${escapeHtml(costs.total.toLocaleString('cs-CZ'))}</div>
+                    <div class="stat-value">${escapeHtml(formatNumber(costs.total, 0))}</div>
                     <div class="stat-label">Celkem (${safeCurrency})</div>
                 </div>
                 <div class="stat-card">
@@ -1363,27 +1503,27 @@ function renderService(vehicle) {
                 </div>
             </div>
             <div style="margin-top: 12px; font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
-                ${costs.byType.service > 0 ? `<div>Servis/Opravy: ${escapeHtml(costs.byType.service.toLocaleString('cs-CZ'))} ${safeCurrency}</div>` : ''}
-                ${costs.byType.vignette > 0 ? `<div>Dálniční známky: ${escapeHtml(costs.byType.vignette.toLocaleString('cs-CZ'))} ${safeCurrency}</div>` : ''}
-                ${costs.byType.insurance > 0 ? `<div>Pojištění: ${escapeHtml(costs.byType.insurance.toLocaleString('cs-CZ'))} ${safeCurrency}</div>` : ''}
-                ${costs.byType.inspection > 0 ? `<div>STK/Emise: ${escapeHtml(costs.byType.inspection.toLocaleString('cs-CZ'))} ${safeCurrency}</div>` : ''}
-                ${costs.byType.other > 0 ? `<div>Ostatní: ${escapeHtml(costs.byType.other.toLocaleString('cs-CZ'))} ${safeCurrency}</div>` : ''}
+                ${costLine('Servis/Opravy', costs.byType.service)}
+                ${costLine('Dálniční známky', costs.byType.vignette)}
+                ${costLine('Pojištění', costs.byType.insurance)}
+                ${costLine('STK/Emise', costs.byType.inspection)}
+                ${costLine('Ostatní', costs.byType.other)}
             </div>
         </div>
     `;
 
     // Services list
     let servicesListHtml = '';
-    Object.keys(serviceTypes).forEach(type => {
-        const group = serviceTypes[type];
-        if (group.items.length > 0) {
+    Object.keys(SERVICE_TYPES).forEach(type => {
+        const items = groups[type];
+        if (items.length > 0) {
             servicesListHtml += `
                 <div class="card" style="margin-bottom: 16px;">
                     <h3 style="font-size: 1rem; margin-bottom: 12px; color: var(--md-sys-color-primary); display: flex; align-items: center; gap: 8px;">
-                        <span class="material-symbols-outlined">${group.icon}</span>
-                        ${group.label}
+                        <span class="material-symbols-outlined">${SERVICE_TYPES[type].icon}</span>
+                        ${SERVICE_TYPES[type].label}
                     </h3>
-                    ${group.items.map(s => createServiceItem(s, currency)).join('')}
+                    ${items.map(s => createServiceItem(s, currency)).join('')}
                 </div>
             `;
         }
@@ -1408,7 +1548,7 @@ function renderService(vehicle) {
                 </h2>
             </div>
         </div>
-        ${alertsHtml}
+        ${renderAlertsHtml(vehicle, false)}
         ${costsHtml}
         ${servicesListHtml}
     `;
@@ -1418,8 +1558,8 @@ function renderService(vehicle) {
 }
 
 function createServiceItem(service, currency) {
-    const hasValidity = service.validUntil;
-    const isExpired = hasValidity && new Date(service.validUntil) < new Date();
+    const hasValidity = !!service.validUntil;
+    const isExpired = DataManager.isServiceExpired(service);
     const safeId = escapeHtml(service.id);
     const safeCurrency = escapeHtml(currency);
 
@@ -1435,111 +1575,23 @@ function createServiceItem(service, currency) {
                 <div style="flex: 1;">
                     <div class="log-main" ${isExpired ? 'style="color: var(--md-sys-color-error);"' : ''}>${escapeHtml(service.description)}</div>
                     <div class="log-sub">
-                        ${escapeHtml(formatDate(service.date))}
-                        ${service.odometer ? ` • ${escapeHtml(service.odometer)} km` : ''}
-                        ${hasValidity ? ` • Platí do: ${escapeHtml(formatDate(service.validUntil))}` : ''}
+                        ${escapeHtml(DateUtil.format(service.date))}
+                        ${service.odometer ? ` • ${escapeHtml(formatNumber(service.odometer))} km` : ''}
+                        ${hasValidity ? ` • Platí do: ${escapeHtml(DateUtil.format(service.validUntil))}` : ''}
+                        ${service.nextOdometer ? ` • Příště při ${escapeHtml(formatNumber(service.nextOdometer))} km` : ''}
                     </div>
                     ${service.note ? `<div class="log-sub" style="font-style: italic;">${escapeHtml(service.note)}</div>` : ''}
                 </div>
                 <div>
-                    <div class="log-value">${service.cost ? escapeHtml(service.cost.toLocaleString('cs-CZ')) : '0'} ${safeCurrency}</div>
+                    <div class="log-value">${escapeHtml(formatNumber(service.cost || 0, 0))} ${safeCurrency}</div>
                 </div>
             </div>
         </div>
     `;
 }
 
-// Global service swipe state
-const serviceSwipeState = {
-    isDragging: false,
-    startX: 0,
-    currentX: 0,
-    activeContent: null,
-    activeId: null
-};
-
-let serviceSwipeHandlersInitialized = false;
-
-function initServiceSwipeHandlers() {
-    if (serviceSwipeHandlersInitialized) return;
-    serviceSwipeHandlersInitialized = true;
-
-    window.addEventListener('mousemove', (e) => {
-        if (!serviceSwipeState.isDragging || !serviceSwipeState.activeContent) return;
-        serviceSwipeState.currentX = e.clientX - serviceSwipeState.startX;
-        if (serviceSwipeState.currentX > 100) serviceSwipeState.currentX = 100;
-        if (serviceSwipeState.currentX < -100) serviceSwipeState.currentX = -100;
-        serviceSwipeState.activeContent.style.transform = `translateX(${serviceSwipeState.currentX}px)`;
-    });
-
-    window.addEventListener('mouseup', () => {
-        if (serviceSwipeState.isDragging && serviceSwipeState.activeContent) {
-            serviceSwipeState.isDragging = false;
-            serviceSwipeState.activeContent.style.transition = 'transform 0.2s ease-out';
-            handleServiceSwipeEnd(serviceSwipeState.activeContent, serviceSwipeState.currentX, serviceSwipeState.activeId);
-            serviceSwipeState.currentX = 0;
-            serviceSwipeState.activeContent = null;
-            serviceSwipeState.activeId = null;
-        }
-    });
-}
-
 function attachServiceSwipeListeners() {
-    initServiceSwipeHandlers();
-
-    const items = document.querySelectorAll('.service-item:not([data-swipe-initialized])');
-    items.forEach(item => {
-        item.setAttribute('data-swipe-initialized', 'true');
-
-        const content = item.querySelector('.swipe-content');
-        const id = item.dataset.id;
-
-        content.addEventListener('touchstart', (e) => {
-            serviceSwipeState.startX = e.touches[0].clientX;
-            serviceSwipeState.isDragging = true;
-            serviceSwipeState.activeContent = content;
-            serviceSwipeState.activeId = id;
-            content.style.transition = 'none';
-        });
-
-        content.addEventListener('touchmove', (e) => {
-            if (!serviceSwipeState.isDragging || serviceSwipeState.activeContent !== content) return;
-            serviceSwipeState.currentX = e.touches[0].clientX - serviceSwipeState.startX;
-            if (serviceSwipeState.currentX > 100) serviceSwipeState.currentX = 100;
-            if (serviceSwipeState.currentX < -100) serviceSwipeState.currentX = -100;
-            content.style.transform = `translateX(${serviceSwipeState.currentX}px)`;
-        });
-
-        content.addEventListener('touchend', () => {
-            if (serviceSwipeState.activeContent !== content) return;
-            serviceSwipeState.isDragging = false;
-            content.style.transition = 'transform 0.2s ease-out';
-            handleServiceSwipeEnd(content, serviceSwipeState.currentX, id);
-            serviceSwipeState.currentX = 0;
-            serviceSwipeState.activeContent = null;
-            serviceSwipeState.activeId = null;
-        });
-
-        content.addEventListener('mousedown', (e) => {
-            serviceSwipeState.startX = e.clientX;
-            serviceSwipeState.isDragging = true;
-            serviceSwipeState.activeContent = content;
-            serviceSwipeState.activeId = id;
-            content.style.transition = 'none';
-        });
-    });
-}
-
-function handleServiceSwipeEnd(element, distance, id) {
-    if (distance > 50) {
-        element.style.transform = 'translateX(0px)';
-        openServiceModal(id);
-    } else if (distance < -50) {
-        element.style.transform = 'translateX(0px)';
-        deleteServiceRecord(id);
-    } else {
-        element.style.transform = 'translateX(0px)';
-    }
+    attachSwipeListeners('.service-item', openServiceModal, deleteServiceRecord);
 }
 
 function openServiceModal(editId = null) {
@@ -1551,28 +1603,34 @@ function openServiceModal(editId = null) {
 
     const modalTitle = document.getElementById('serviceModalTitle');
     document.getElementById('serviceVehicleId').value = activeVehicle.id;
+    document.getElementById('serviceCostLabel').textContent = `Cena (${DataManager.state.settings.currency})`;
 
     if (editId) {
         const service = DataManager.getService(editId);
         if (!service) return;
 
         modalTitle.textContent = 'Upravit záznam';
+        document.getElementById('serviceVehicleId').value = service.vehicleId;
         document.getElementById('serviceId').value = service.id;
         document.getElementById('serviceType').value = service.type || 'service';
         document.getElementById('serviceDate').value = service.date;
         document.getElementById('serviceValidUntil').value = service.validUntil || '';
         document.getElementById('serviceDescription').value = service.description || '';
         document.getElementById('serviceOdometer').value = service.odometer || '';
+        document.getElementById('serviceNextOdometer').value = service.nextOdometer || '';
         document.getElementById('serviceCost').value = service.cost || '';
         document.getElementById('serviceNote').value = service.note || '';
     } else {
         modalTitle.textContent = 'Nový servisní záznam';
         document.getElementById('serviceId').value = '';
         document.getElementById('serviceType').value = 'service';
-        document.getElementById('serviceDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('serviceDate').value = DateUtil.today();
         document.getElementById('serviceValidUntil').value = '';
         document.getElementById('serviceDescription').value = '';
+        const currentOdo = DataManager.getCurrentOdometer(activeVehicle.id);
         document.getElementById('serviceOdometer').value = '';
+        document.getElementById('serviceOdometer').placeholder = currentOdo ? `Volitelné (naposledy ${currentOdo})` : 'Volitelné';
+        document.getElementById('serviceNextOdometer').value = '';
         document.getElementById('serviceCost').value = '';
         document.getElementById('serviceNote').value = '';
     }
@@ -1584,17 +1642,14 @@ function openServiceModal(editId = null) {
 function onServiceTypeChange() {
     const type = document.getElementById('serviceType').value;
     const validUntilGroup = document.getElementById('serviceValidUntilGroup');
-    const odoGroup = document.getElementById('serviceOdoGroup');
+    const nextOdoGroup = document.getElementById('serviceNextOdoGroup');
 
     // Show validity field for items that expire
-    if (type === 'vignette' || type === 'insurance' || type === 'inspection') {
-        validUntilGroup.style.display = 'block';
-    } else {
-        validUntilGroup.style.display = 'none';
-    }
+    const hasValidity = type === 'vignette' || type === 'insurance' || type === 'inspection';
+    validUntilGroup.style.display = hasValidity ? 'block' : 'none';
 
-    // Odometer is optional for all but more relevant for service/inspection
-    odoGroup.style.display = 'block';
+    // Next service by odometer - for repairs/maintenance
+    nextOdoGroup.style.display = (type === 'service' || type === 'other') ? 'block' : 'none';
 }
 
 function saveServiceRecord() {
@@ -1603,19 +1658,40 @@ function saveServiceRecord() {
         const vehicleId = document.getElementById('serviceVehicleId').value;
         const type = document.getElementById('serviceType').value;
         const date = document.getElementById('serviceDate').value;
-        const validUntil = document.getElementById('serviceValidUntil').value;
-        const description = document.getElementById('serviceDescription').value;
-        const odometer = document.getElementById('serviceOdometer').value;
-        const cost = document.getElementById('serviceCost').value;
-        const note = document.getElementById('serviceNote').value;
+        const hasValidity = type === 'vignette' || type === 'insurance' || type === 'inspection';
+        const hasNextOdo = type === 'service' || type === 'other';
+        const validUntil = hasValidity ? document.getElementById('serviceValidUntil').value : '';
+        const description = document.getElementById('serviceDescription').value.trim();
+        const odometerStr = String(document.getElementById('serviceOdometer').value).replace(/\s/g, '');
+        const nextOdoStr = hasNextOdo ? String(document.getElementById('serviceNextOdometer').value).replace(/\s/g, '') : '';
+        const cost = parseNum(document.getElementById('serviceCost').value);
+        const note = document.getElementById('serviceNote').value.trim();
 
         if (!date) {
             showNotification('Zadejte datum');
             return;
         }
-
         if (!description) {
             showNotification('Zadejte popis záznamu');
+            return;
+        }
+        if (validUntil && validUntil < date) {
+            showNotification('Platnost do nemůže být před datem záznamu');
+            return;
+        }
+        if (!isNaN(cost) && cost < 0) {
+            showNotification('Cena nemůže být záporná');
+            return;
+        }
+
+        const odometer = odometerStr ? parseInt(odometerStr, 10) : null;
+        const nextOdometer = nextOdoStr ? parseInt(nextOdoStr, 10) : null;
+        if ((odometerStr && !(odometer > 0)) || (nextOdoStr && !(nextOdometer > 0))) {
+            showNotification('Zadejte platný stav tachometru');
+            return;
+        }
+        if (odometer && nextOdometer && nextOdometer <= odometer) {
+            showNotification('Příští servis musí být při vyšším stavu tachometru');
             return;
         }
 
@@ -1626,9 +1702,10 @@ function saveServiceRecord() {
             date,
             validUntil: validUntil || null,
             description,
-            odometer: odometer ? parseInt(odometer) : null,
-            cost: cost ? parseFloat(cost) : 0,
-            note: note || ''
+            odometer,
+            nextOdometer,
+            cost: isNaN(cost) ? 0 : cost,
+            note
         };
 
         let success = false;
@@ -1647,7 +1724,7 @@ function saveServiceRecord() {
         }
 
         closeModal('serviceModal');
-        renderService(DataManager.getActiveVehicle());
+        refreshCurrentView();
     } catch (e) {
         Logger.error('Service', 'Failed to save service record', { error: e.message });
         showNotification('Chyba při ukládání');
@@ -1655,14 +1732,13 @@ function saveServiceRecord() {
 }
 
 function deleteServiceRecord(id) {
-    if (confirm('Opravdu smazat tento záznam?')) {
+    const service = DataManager.getService(id);
+    const label = service ? ` "${service.description}"` : '';
+    if (confirm(`Opravdu smazat záznam${label}?`)) {
         const success = DataManager.deleteService(id);
         if (success) {
             showNotification('Záznam smazán');
-            const activeVehicle = DataManager.getActiveVehicle();
-            if (activeVehicle) {
-                renderService(activeVehicle);
-            }
+            refreshCurrentView();
         } else {
             showNotification('Chyba při mazání');
         }
@@ -1737,7 +1813,8 @@ function renderSettings() {
                                 <span>${CloudSync.isOnline() ? 'Online' : 'Offline'}</span>
                             </div>
                             <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
-                                Poslední sync: ${CloudSync.getSyncStatus().lastSyncFormatted}
+                                Poslední sync: ${escapeHtml(CloudSync.getSyncStatus().lastSyncFormatted)}
+                                ${settings.cloudSync && CloudSync.hasPendingChanges() ? '<br>Čekají neodeslané změny' : ''}
                             </div>
                         </div>
                     </div>
@@ -1778,23 +1855,23 @@ function renderSettings() {
                         <div>
                             <div>Nejnižší cena za litr</div>
                             <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
-                                Levnější tankování appka odmítne
+                                V ${escapeHtml(settings.currency)}/l, levnější tankování appka odmítne
                             </div>
                         </div>
                         <input type="number" id="settingMinPrice" class="text-field" step="0.1" min="0"
                             style="width: 100px; text-align: right;"
-                            value="${settings.minPrice}" onchange="savePriceLimits()">
+                            value="${escapeHtml(settings.minPrice)}" onchange="savePriceLimits()">
                     </div>
                     <div class="settings-item">
                         <div>
                             <div>Nejvyšší cena za litr</div>
                             <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
-                                Dražší tankování appka odmítne
+                                V ${escapeHtml(settings.currency)}/l, dražší tankování appka odmítne
                             </div>
                         </div>
                         <input type="number" id="settingMaxPrice" class="text-field" step="0.1" min="0"
                             style="width: 100px; text-align: right;"
-                            value="${settings.maxPrice}" onchange="savePriceLimits()">
+                            value="${escapeHtml(settings.maxPrice)}" onchange="savePriceLimits()">
                     </div>
                 </div>
 
@@ -1816,8 +1893,22 @@ function renderSettings() {
                 </div>
                 <div class="settings-group" onclick="importData()">
                     <div class="settings-item">
-                         <span>Importovat data</span>
+                         <div>
+                             <div>Importovat data</div>
+                             <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">Přepíše data v tomto zařízení (předtím se zazálohují)</div>
+                         </div>
                          <span class="material-symbols-outlined">upload</span>
+                    </div>
+                </div>
+                <div class="settings-group" onclick="viewBackups()">
+                    <div class="settings-item">
+                         <div>
+                             <div>Zálohy v zařízení</div>
+                             <div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">
+                                 ${DataManager.listBackups().length} automatických záloh (před importem, obnovou, migrací)
+                             </div>
+                         </div>
+                         <span class="material-symbols-outlined">restore</span>
                     </div>
                 </div>
 
@@ -2075,8 +2166,8 @@ function saveCar() {
     // Validate tank size
     let tankSize = null;
     if (tankStr) {
-        tankSize = parseInt(tankStr);
-        if (isNaN(tankSize) || tankSize < 1) {
+        tankSize = parseNum(tankStr);
+        if (!isFinite(tankSize) || tankSize < 1) {
             showNotification('Zadejte platný objem nádrže (min. 1 l).');
             return;
         }
@@ -2115,7 +2206,11 @@ function saveCar() {
 }
 
 function deleteCar(id) {
-    if (confirm("Opravdu smazat toto auto a všechna jeho data?")) {
+    const vehicle = DataManager.getVehicle(id);
+    if (!vehicle) return;
+    const refuelCount = DataManager.getRefuels(id).length;
+    const serviceCount = DataManager.getServices(id).length;
+    if (confirm(`Opravdu smazat auto "${vehicle.name}" a všechna jeho data?\n(${refuelCount} tankování, ${serviceCount} servisních záznamů)`)) {
         DataManager.deleteVehicle(id);
         renderApp();
         showNotification("Auto smazáno.");
@@ -2124,10 +2219,8 @@ function deleteCar(id) {
 
 // === Settings Logic ===
 function toggleDarkMode() {
-    DataManager.state.settings.darkMode = !DataManager.state.settings.darkMode;
-    DataManager.save();
-    DataManager.applySettings();
-    renderApp();
+    DataManager.updateSettings({ darkMode: !DataManager.state.settings.darkMode });
+    renderSettings(); // stay in Settings
 }
 
 /**
@@ -2140,13 +2233,12 @@ function savePriceLimits() {
     const maxEl = document.getElementById('settingMaxPrice');
     if (!minEl || !maxEl) return;
 
-    const min = parseFloat(minEl.value);
-    const max = parseFloat(maxEl.value);
+    const min = parseNum(minEl.value);
+    const max = parseNum(maxEl.value);
     const settings = DataManager.state.settings;
 
     if (isNaN(min) || isNaN(max) || min < 0 || max <= 0) {
         showNotification('Zadejte platné ceny (kladná čísla).');
-        Logger.warn('Settings', 'Invalid price limits', { min: minEl.value, max: maxEl.value });
         minEl.value = settings.minPrice;
         maxEl.value = settings.maxPrice;
         return;
@@ -2154,66 +2246,64 @@ function savePriceLimits() {
 
     if (min >= max) {
         showNotification('Nejnižší cena musí být menší než nejvyšší.');
-        Logger.warn('Settings', 'Price limits inverted', { min, max });
         minEl.value = settings.minPrice;
         maxEl.value = settings.maxPrice;
         return;
     }
 
     DataManager.updateSettings({ minPrice: min, maxPrice: max });
-    showNotification(`Rozsah ceny nastaven na ${min}-${max} Kč/l`);
+    showNotification(`Rozsah ceny nastaven na ${min}-${max} ${settings.currency}/l`);
 }
 
 function toggleAutoDarkMode() {
-    DataManager.state.settings.darkModeAuto = !DataManager.state.settings.darkModeAuto;
-    Logger.info('Settings', 'Auto dark mode toggled', {
-        enabled: DataManager.state.settings.darkModeAuto
-    });
-    DataManager.save();
-    DataManager.applySettings();
-    renderApp();
+    DataManager.updateSettings({ darkModeAuto: !DataManager.state.settings.darkModeAuto });
+    renderSettings(); // stay in Settings
+}
+
+/** Trigger a file download */
+function downloadBlob(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoking immediately can cancel the download in some browsers
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Safe part of a file name */
+function fileSafe(text) {
+    return String(text || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'auto';
 }
 
 function exportData() {
     try {
-        Logger.info('Settings', 'Exporting data with sync info');
-
-        // Create export payload with sync ID and timestamp
         const exportPayload = {
-            ...DataManager.state,
+            ...DataManager.exportData(),
             _syncId: typeof CloudSync !== 'undefined' ? CloudSync.getUserId() : null,
             _exportDate: new Date().toISOString()
         };
 
         const dataStr = JSON.stringify(exportPayload, null, 2);
-        const blob = new Blob([dataStr], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = "fuel_tracker_backup.json";
-        a.click();
+        downloadBlob(new Blob([dataStr], { type: "application/json" }),
+            `fuel_tracker_zaloha_${DateUtil.today()}.json`);
 
-        URL.revokeObjectURL(url);
-
-        Logger.info('Settings', 'Export successful', {
-            hasSyncId: !!exportPayload._syncId,
-            exportDate: exportPayload._exportDate
-        });
-
-        showNotification('Data exportována s Sync ID');
+        Logger.info('Settings', 'Export successful');
+        showNotification('Data exportována');
     } catch (e) {
-        Logger.error('Settings', 'Export failed', {
-            error: e.message,
-            stack: e.stack
-        });
+        Logger.error('Settings', 'Export failed', { error: e.message });
         showNotification('Chyba při exportu dat');
     }
 }
 
+/**
+ * CSV for Czech Excel: semicolon separator, decimal comma, UTF-8 BOM.
+ */
 function exportCSV() {
     try {
-        Logger.info('Settings', 'Exporting data to CSV');
-
         const activeVehicle = DataManager.getActiveVehicle();
         if (!activeVehicle) {
             showNotification('Nejprve vyberte vozidlo');
@@ -2226,243 +2316,217 @@ function exportCSV() {
             return;
         }
 
-        // Use the same consumption calculation as dashboard for consistency
+        // Same consumption calculation as everywhere else
         const consumptionMap = DataManager.calculateConsumptionForRefuels(activeVehicle.id);
+        const currency = DataManager.state.settings.currency;
 
-        // CSV Header
+        const dec = (n, d) => (isFinite(Number(n)) ? Number(n).toFixed(d).replace('.', ',') : '');
+        const text = t => `"${String(t === null || t === undefined ? '' : t).replace(/"/g, '""')}"`;
+
         const headers = [
             'Datum',
             'Stav tachometru (km)',
             'Natankováno (l)',
-            'Cena za litr (Kč)',
-            'Celková cena (Kč)',
+            `Cena za litr (${currency})`,
+            `Celková cena (${currency})`,
             'Plná nádrž',
+            'Předchozí nezapsáno',
             'Poznámka',
             'Spotřeba (l/100km)'
         ];
 
-        // Build CSV rows
-        const rows = [headers.join(',')];
+        const rows = [headers.map(text).join(';')];
 
         refuels.forEach((refuel) => {
-            // Use pre-calculated consumption from consumptionMap
-            const consumption = consumptionMap[refuel.id] !== null ? consumptionMap[refuel.id] : '';
-
-            const row = [
-                formatDate(refuel.date),
+            const consumption = consumptionMap[refuel.id];
+            rows.push([
+                DateUtil.format(refuel.date),
                 refuel.odometer,
-                refuel.liters.toFixed(2),
-                refuel.pricePerLiter.toFixed(2),
-                refuel.totalPrice.toFixed(2),
+                dec(refuel.liters, 2),
+                dec(refuel.pricePerLiter, 2),
+                dec(refuel.totalPrice, 2),
                 refuel.isFullTank ? 'Ano' : 'Ne',
-                `"${(refuel.notes || '').replace(/"/g, '""')}"`, // Escape quotes
-                consumption
-            ];
-
-            rows.push(row.join(','));
+                refuel.missedPrevious ? 'Ano' : 'Ne',
+                text(refuel.notes || ''),
+                consumption !== null && consumption !== undefined ? dec(consumption, 1) : ''
+            ].join(';'));
         });
 
-        // Create CSV content
-        const csvContent = rows.join('\n');
+        const BOM = '﻿';
+        downloadBlob(new Blob([BOM + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' }),
+            `fuel_tracker_${fileSafe(activeVehicle.name)}_${DateUtil.today()}.csv`);
 
-        // Add BOM for Excel UTF-8 support
-        const BOM = '\uFEFF';
-        const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `fuel_tracker_${activeVehicle.name}_${Date.now()}.csv`;
-        a.click();
-
-        URL.revokeObjectURL(url);
-
-        Logger.info('Settings', 'CSV export successful', {
-            vehicleName: activeVehicle.name,
-            rowsCount: refuels.length
-        });
-
+        Logger.info('Settings', 'CSV export successful', { rowsCount: refuels.length });
         showNotification('CSV exportován');
     } catch (e) {
-        Logger.error('Settings', 'Failed to export CSV', {
-            error: e.message,
-            stack: e.stack
-        });
+        Logger.error('Settings', 'Failed to export CSV', { error: e.message, stack: e.stack });
         showNotification('Chyba při exportu CSV');
     }
 }
 
+/**
+ * Import a JSON backup.
+ * - asks before overwriting, backs up current data first
+ * - validates and migrates the file (DataManager.importData)
+ * - switches the Sync ID only when the user agrees
+ */
 function importData() {
     try {
-        Logger.info('Settings', 'Starting data import');
-
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = '.json';
+        input.accept = '.json,application/json';
         input.onchange = e => {
-            try {
-                const file = e.target.files[0];
-                if (!file) {
-                    Logger.warn('Settings', 'No file selected for import');
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async ev => {
+                let data;
+                try {
+                    data = JSON.parse(ev.target.result);
+                } catch (err) {
+                    showNotification("Chyba: Soubor není platný JSON.");
                     return;
                 }
 
-                Logger.info('Settings', 'Reading import file', {
-                    fileName: file.name,
-                    fileSize: file.size
-                });
+                if (!data || !Array.isArray(data.vehicles) || !Array.isArray(data.refuels)) {
+                    showNotification("Chyba: Soubor neobsahuje data FuelTrackeru.");
+                    return;
+                }
 
-                const reader = new FileReader();
-                reader.onload = async ev => {
-                    try {
-                        const data = JSON.parse(ev.target.result);
+                let ageText = '';
+                if (data._exportDate) {
+                    const days = Math.floor((Date.now() - new Date(data._exportDate).getTime()) / 86400000);
+                    if (days >= 0) ageText = `\nZáloha je ${pluralDays(days)} stará.`;
+                }
 
-                        // Validate imported data structure
-                        if (!data.vehicles || !data.refuels || !data.settings) {
-                            throw new Error('Invalid data structure');
-                        }
+                const ok = confirm(
+                    `Import přepíše všechna data v tomto zařízení:\n` +
+                    `${data.vehicles.length} aut, ${data.refuels.length} tankování, ` +
+                    `${Array.isArray(data.services) ? data.services.length : 0} servisních záznamů.${ageText}\n\n` +
+                    `Současná data se nejdřív automaticky zazálohují (Nastavení > Zálohy v zařízení). Pokračovat?`);
+                if (!ok) return;
 
-                        Logger.info('Settings', 'Importing data', {
-                            vehiclesCount: data.vehicles.length,
-                            refuelsCount: data.refuels.length,
-                            hasSyncId: !!data._syncId,
-                            exportDate: data._exportDate
-                        });
+                const fileSyncId = data._syncId;
+                const cleanData = { ...data };
+                delete cleanData._syncId;
+                delete cleanData._exportDate;
+                delete cleanData._lastSync;
+                delete cleanData._deviceInfo;
+                delete cleanData._rev;
 
-                        // Check export age and warn user
-                        if (data._exportDate) {
-                            const exportDate = new Date(data._exportDate);
-                            const daysSinceExport = Math.floor((Date.now() - exportDate.getTime()) / (1000 * 60 * 60 * 24));
+                if (!DataManager.importData(cleanData, { backupReason: 'před importem souboru' })) {
+                    showNotification("Chyba: Data v souboru jsou neplatná.");
+                    return;
+                }
 
-                            if (daysSinceExport > 7) {
-                                Logger.warn('Settings', 'Import file is old', { daysSinceExport });
-                                showNotification(`⚠️ Export je starý ${daysSinceExport} dní`);
-                            }
-                        }
-
-                        // Restore Sync ID if present
-                        let syncIdRestored = false;
-                        if (data._syncId && typeof CloudSync !== 'undefined') {
-                            syncIdRestored = CloudSync.setUserId(data._syncId);
-                            Logger.info('Settings', 'Sync ID restored', {
-                                syncId: data._syncId,
-                                success: syncIdRestored
-                            });
-                        }
-
-                        // Remove internal sync fields before importing
-                        const cleanData = { ...data };
-                        delete cleanData._syncId;
-                        delete cleanData._exportDate;
-                        delete cleanData._lastSync;
-                        delete cleanData._deviceInfo;
-
-                        // Import local data first
-                        DataManager.state = cleanData;
-                        DataManager.save();
-                        DataManager.applySettings();
-                        renderApp();
-                        showNotification("Data úspěšně obnovena!");
-
-                        Logger.info('Settings', 'Data import successful');
-
-                        // Try to pull fresh data from cloud if sync ID was restored
-                        if (syncIdRestored && typeof CloudSync !== 'undefined' && CloudSync.isOnline()) {
-                            Logger.info('Settings', 'Attempting to sync with cloud after import');
-                            showNotification('🔄 Kontroluji aktuální data v cloudu...', 'cloud_sync');
-
-                            try {
-                                const result = await CloudSync.pullFromCloud();
-
-                                if (result.success && result.data) {
-                                    // Compare timestamps
-                                    const cloudDate = new Date(result.data._lastSync || 0);
-                                    const exportDate = new Date(data._exportDate || 0);
-
-                                    if (cloudDate > exportDate) {
-                                        Logger.info('Settings', 'Cloud data is newer, merging', {
-                                            cloudDate: result.data._lastSync,
-                                            exportDate: data._exportDate
-                                        });
-
-                                        if (CloudSync.mergeData(result.data)) {
-                                            renderApp();
-                                            showNotification('✅ Data aktualizována z cloudu!', 'cloud_done');
-                                        }
-                                    } else {
-                                        Logger.info('Settings', 'Import data is newer than cloud');
-                                        showNotification('✅ Import obsahuje nejnovější data', 'check_circle');
-
-                                        // Push imported data to cloud to update it
-                                        CloudSync.pushToCloud();
-                                    }
-                                } else {
-                                    Logger.info('Settings', 'No cloud data found, pushing import');
-                                    showNotification('📤 Nahrávám data do cloudu...', 'cloud_upload');
-                                    await CloudSync.pushToCloud();
-                                }
-                            } catch (cloudError) {
-                                Logger.error('Settings', 'Cloud sync after import failed', {
-                                    error: cloudError.message
-                                });
-                                showNotification('⚠️ Import OK, cloud sync selhal', 'warning');
-                            }
-                        }
-
-                    } catch (err) {
-                        Logger.error('Settings', 'Failed to parse import file', {
-                            error: err.message,
-                            stack: err.stack
-                        });
-                        showNotification("Chyba: Neplatný formát souboru.");
+                // Sync ID from the file - only after explicit confirmation
+                if (typeof CloudSync !== 'undefined' && fileSyncId && CloudSync.isValidUserId(fileSyncId) &&
+                    fileSyncId !== CloudSync.getUserId()) {
+                    if (confirm('Soubor obsahuje jiné Sync ID (z jiného zařízení).\n\nPřepnout cloud synchronizaci na toto ID? Zvolte OK jen u vlastní zálohy.')) {
+                        CloudSync.setUserId(fileSyncId);
                     }
-                };
+                }
 
-                reader.onerror = () => {
-                    Logger.error('Settings', 'Failed to read import file', {
-                        error: reader.error
-                    });
-                    showNotification("Chyba při čtení souboru.");
-                };
+                renderApp();
+                showNotification("Data úspěšně obnovena!");
+                Logger.info('Settings', 'Data import successful');
 
-                reader.readAsText(file);
-            } catch (err) {
-                Logger.error('Settings', 'Error in file selection handler', {
-                    error: err.message,
-                    stack: err.stack
-                });
-                showNotification("Chyba při importu dat.");
-            }
+                // Merge with the cloud (nothing is overwritten - records are joined)
+                if (typeof CloudSync !== 'undefined' && CloudSync.isEnabled() && CloudSync.isOnline()) {
+                    const result = await CloudSync.fullSync();
+                    if (result.success) {
+                        showNotification(result.changed ? 'Import sloučen s daty v cloudu' : 'Data synchronizována', 'cloud_done');
+                        if (result.changed) refreshCurrentView();
+                    } else {
+                        showNotification('Import OK, cloud sync selhal: ' + result.error, 'warning');
+                    }
+                }
+            };
+
+            reader.onerror = () => {
+                showNotification("Chyba při čtení souboru.");
+            };
+
+            reader.readAsText(file);
         };
         input.click();
     } catch (e) {
-        Logger.error('Settings', 'Failed to initiate data import', {
-            error: e.message,
-            stack: e.stack
-        });
+        Logger.error('Settings', 'Failed to initiate data import', { error: e.message });
         showNotification('Chyba při importu dat');
     }
 }
 
+// === Backups ===
+function viewBackups() {
+    const backups = DataManager.listBackups();
+    const list = backups.length === 0
+        ? '<p style="text-align: center; color: var(--md-sys-color-outline); padding: 20px;">Zatím žádné zálohy. Vytvoří se automaticky před importem, obnovou a aktualizací dat.</p>'
+        : backups.map(b => `
+            <div class="log-item" style="cursor: default;">
+                <div>
+                    <div class="log-main">${escapeHtml(b.createdAt ? new Date(b.createdAt).toLocaleString('cs-CZ') : '?')}</div>
+                    <div class="log-sub">${escapeHtml(b.reason)} • ${b.vehiclesCount} aut, ${b.refuelsCount} tankování</div>
+                </div>
+                <button class="button text-button" onclick="restoreBackupFromSettings('${escapeHtml(b.key)}')">Obnovit</button>
+            </div>`).join('');
+
+    document.getElementById('mainContent').innerHTML = `
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <span class="material-symbols-outlined">restore</span>
+                    Zálohy v zařízení
+                </h2>
+                <button class="button text-button" onclick="renderSettings()" aria-label="Zavřít">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 12px;">
+                Aplikace drží poslední ${MAX_BACKUPS} zálohy v tomto prohlížeči. Pro jistotu občas exportujte data do souboru.
+            </p>
+            ${list}
+        </div>`;
+}
+
+function restoreBackupFromSettings(key) {
+    if (!/^fuelTrackerBackup_\d+$/.test(key)) return;
+    if (!confirm('Obnovit data z této zálohy? Současná data se nejdřív zazálohují.')) return;
+    if (DataManager.restoreBackup(key)) {
+        showNotification('Záloha obnovena');
+        renderApp('settings');
+        if (typeof CloudSync !== 'undefined' && CloudSync.isEnabled()) CloudSync.scheduleSync();
+    } else {
+        showNotification('Zálohu se nepodařilo obnovit');
+    }
+}
+
 // === Utils ===
-function showNotification(msg) {
+let notificationTimeout = null;
+
+function showNotification(msg, icon = 'info') {
     const el = document.getElementById('notification');
-    document.getElementById('notificationMessage').textContent = msg;
+    const msgEl = document.getElementById('notificationMessage');
+    if (!el || !msgEl) return;
+    msgEl.textContent = msg;
+    const iconEl = el.querySelector('.notification-icon');
+    if (iconEl) iconEl.textContent = icon || 'info';
     el.style.display = 'flex';
-    setTimeout(() => el.style.display = 'none', 3000);
+    // A new message restarts the timer (older timers used to hide it early)
+    if (notificationTimeout) clearTimeout(notificationTimeout);
+    notificationTimeout = setTimeout(() => {
+        el.style.display = 'none';
+        notificationTimeout = null;
+    }, 3500);
 }
 
 function formatDate(isoDate) {
-    if (!isoDate) return '';
-    const d = new Date(isoDate);
-    return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+    return DateUtil.format(isoDate);
 }
 
 // === Log Management Functions ===
 function viewLogs() {
     try {
-        Logger.info('Settings', 'Viewing logs');
-
         const allLogs = Logger.logs;
         const errorLogs = Logger.getPersistedErrors();
 
@@ -2471,7 +2535,6 @@ function viewLogs() {
         if (allLogs.length === 0 && errorLogs.length === 0) {
             logsHtml = '<p style="text-align: center; color: var(--md-sys-color-outline); padding: 20px;">Žádné logy k zobrazení</p>';
         } else {
-            // Show persisted errors first
             if (errorLogs.length > 0) {
                 logsHtml += '<h3 style="font-size: 0.9rem; margin: 12px 0; color: var(--md-sys-color-error);">Uložené chyby</h3>';
                 errorLogs.slice().reverse().forEach(log => {
@@ -2479,7 +2542,6 @@ function viewLogs() {
                 });
             }
 
-            // Show recent logs
             if (allLogs.length > 0) {
                 logsHtml += '<h3 style="font-size: 0.9rem; margin: 12px 0; color: var(--md-sys-color-primary);">Aktuální logy</h3>';
                 allLogs.slice().reverse().forEach(log => {
@@ -2495,7 +2557,7 @@ function viewLogs() {
                         <span class="material-symbols-outlined">bug_report</span>
                         Systémové logy
                     </h2>
-                    <button class="button text-button" onclick="renderSettings()">
+                    <button class="button text-button" onclick="renderSettings()" aria-label="Zavřít">
                         <span class="material-symbols-outlined">close</span>
                     </button>
                 </div>
@@ -2507,14 +2569,14 @@ function viewLogs() {
 
         DomHelper.setContent('mainContent', content);
     } catch (e) {
-        Logger.error('Settings', 'Failed to view logs', {
-            error: e.message,
-            stack: e.stack
-        });
+        Logger.error('Settings', 'Failed to view logs', { error: e.message });
         showNotification('Chyba při zobrazení logů');
     }
 }
 
+/**
+ * Log entries contain user input (notes, imported data) - everything is escaped.
+ */
 function formatLogEntry(log) {
     const levelColors = {
         DEBUG: 'var(--md-sys-color-outline)',
@@ -2525,21 +2587,27 @@ function formatLogEntry(log) {
     };
 
     const color = levelColors[log.level] || 'var(--md-sys-color-on-surface)';
-    const time = new Date(log.timestamp).toLocaleTimeString('cs-CZ');
-    const date = new Date(log.timestamp).toLocaleDateString('cs-CZ');
+    const ts = new Date(log.timestamp);
+    const time = isNaN(ts.getTime()) ? '' : ts.toLocaleTimeString('cs-CZ');
+    const date = isNaN(ts.getTime()) ? '' : ts.toLocaleDateString('cs-CZ');
+    let dataText = '';
+    if (log.data) {
+        try { dataText = JSON.stringify(log.data, null, 2); } catch (e) { dataText = String(log.data); }
+    }
+    const message = typeof log.message === 'string' ? log.message : JSON.stringify(log.message);
 
     return `
-        <div class="log-item" style="border-left: 3px solid ${color}; margin-bottom: 8px; padding-left: 12px;">
-            <div style="display: flex; justify-content: space-between; align-items: start;">
-                <div>
+        <div class="log-item" style="border-left: 3px solid ${color}; margin-bottom: 8px; padding-left: 12px; cursor: default;">
+            <div style="display: flex; justify-content: space-between; align-items: start; width: 100%; gap: 8px;">
+                <div style="min-width: 0;">
                     <div class="log-main" style="color: ${color}; font-weight: 500;">
-                        [${log.level}] ${log.category}
+                        [${escapeHtml(log.level)}] ${escapeHtml(log.category)}
                     </div>
-                    <div class="log-sub">${log.message}</div>
-                    ${log.data ? `<pre style="font-size: 0.7rem; margin: 4px 0 0 0; color: var(--md-sys-color-outline); overflow-x: auto;">${JSON.stringify(log.data, null, 2)}</pre>` : ''}
+                    <div class="log-sub">${escapeHtml(message)}</div>
+                    ${dataText ? `<pre style="font-size: 0.7rem; margin: 4px 0 0 0; color: var(--md-sys-color-outline); overflow-x: auto; white-space: pre-wrap; word-break: break-word;">${escapeHtml(dataText)}</pre>` : ''}
                 </div>
                 <div class="log-sub" style="text-align: right; white-space: nowrap;">
-                    ${date}<br>${time}
+                    ${escapeHtml(date)}<br>${escapeHtml(time)}
                 </div>
             </div>
         </div>
@@ -2548,14 +2616,10 @@ function formatLogEntry(log) {
 
 function exportLogs() {
     try {
-        Logger.info('Settings', 'Exporting logs');
         Logger.exportLogs();
         showNotification('Logy exportovány');
     } catch (e) {
-        Logger.error('Settings', 'Failed to export logs', {
-            error: e.message,
-            stack: e.stack
-        });
+        Logger.error('Settings', 'Failed to export logs', { error: e.message });
         showNotification('Chyba při exportu logů');
     }
 }
@@ -2563,17 +2627,13 @@ function exportLogs() {
 function clearLogs() {
     try {
         if (confirm('Opravdu smazat všechny logy?')) {
-            Logger.info('Settings', 'Clearing logs');
             Logger.clearLogs();
             Logger.clearPersistedErrors();
             showNotification('Logy smazány');
             renderSettings();
         }
     } catch (e) {
-        Logger.error('Settings', 'Failed to clear logs', {
-            error: e.message,
-            stack: e.stack
-        });
+        Logger.error('Settings', 'Failed to clear logs', { error: e.message });
         showNotification('Chyba při mazání logů');
     }
 }
@@ -2584,15 +2644,17 @@ function toggleCloudSync(checkbox) {
     Logger.info('Settings', 'Cloud sync toggled', { enabled: checkbox.checked });
 
     if (checkbox.checked && typeof CloudSync !== 'undefined') {
-        showNotification('Synchronizuji...');
+        showNotification('Synchronizuji...', 'cloud_sync');
         CloudSync.fullSync().then(result => {
             if (result.success) {
-                showNotification('Data synchronizována');
-                renderSettings();
+                showNotification('Data synchronizována', 'cloud_done');
             } else {
-                showNotification('Chyba synchronizace: ' + result.error);
+                showNotification('Chyba synchronizace: ' + result.error, 'warning');
             }
+            if (currentTab === 'settings') renderSettings();
         });
+    } else {
+        renderSettings();
     }
 }
 
@@ -2601,15 +2663,19 @@ async function syncNow() {
         showNotification('Cloud sync není dostupný');
         return;
     }
+    if (!CloudSync.isEnabled()) {
+        showNotification('Nejdřív zapněte synchronizaci do cloudu');
+        return;
+    }
 
-    showNotification('Synchronizuji...');
+    showNotification('Synchronizuji...', 'cloud_sync');
     const result = await CloudSync.fullSync();
 
     if (result.success) {
-        showNotification('Data synchronizována');
-        renderApp();
+        showNotification(result.changed ? 'Data synchronizována a sloučena' : 'Data synchronizována', 'cloud_done');
+        refreshCurrentView();
     } else {
-        showNotification('Chyba: ' + result.error);
+        showNotification('Chyba: ' + result.error, 'warning');
     }
 }
 
@@ -2627,15 +2693,16 @@ function showSyncId() {
                     <span class="material-symbols-outlined">key</span>
                     Vaše Sync ID
                 </h2>
-                <button class="button text-button" onclick="renderSettings()">
+                <button class="button text-button" onclick="renderSettings()" aria-label="Zavřít">
                     <span class="material-symbols-outlined">close</span>
                 </button>
             </div>
             <p style="margin-bottom: 16px; color: var(--md-sys-color-on-surface-variant);">
                 Toto ID použijte pro obnovení dat na jiném zařízení.
+                <strong>Je to klíč k vašim datům v cloudu - nesdílejte ho.</strong>
             </p>
             <div style="background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 12px; word-break: break-all; font-family: monospace; margin-bottom: 16px;">
-                ${status.userId}
+                ${escapeHtml(status.userId)}
             </div>
             <button class="button filled-button" style="width: 100%;" onclick="copySyncId()">
                 <span class="material-symbols-outlined">content_copy</span>
@@ -2649,11 +2716,7 @@ function showSyncId() {
 async function copySyncId() {
     if (typeof CloudSync !== 'undefined') {
         const success = await CloudSync.copyUserId();
-        if (success) {
-            showNotification('ID zkopírováno do schránky');
-        } else {
-            showNotification('Nepodařilo se zkopírovat');
-        }
+        showNotification(success ? 'ID zkopírováno do schránky' : 'Nepodařilo se zkopírovat');
     }
 }
 
@@ -2730,35 +2793,41 @@ function showChangelog() {
     }
 }
 
+/**
+ * Restore from another device: the data for the entered ID are downloaded
+ * first. Only if they exist, local data are backed up and replaced and the
+ * device switches to that Sync ID.
+ */
 async function restoreFromId() {
     if (typeof CloudSync === 'undefined') {
         showNotification('Cloud sync není dostupný');
         return;
     }
 
-    const userId = prompt('Zadejte Sync ID z jiného zařízení:');
-    if (!userId) return;
+    const input = prompt('Zadejte Sync ID z jiného zařízení:');
+    if (!input) return;
+    const userId = input.trim();
 
-    if (!userId.startsWith('fuel_')) {
+    if (!CloudSync.isValidUserId(userId)) {
         showNotification('Neplatné Sync ID');
         return;
     }
+    if (userId === CloudSync.getUserId()) {
+        showNotification('Toto zařízení už používá toto Sync ID');
+        return;
+    }
+    if (!confirm('Data v tomto zařízení se nahradí daty z cloudu (současná data se nejdřív zazálohují). Pokračovat?')) {
+        return;
+    }
 
-    if (CloudSync.setUserId(userId)) {
-        showNotification('Stahuji data...');
-        const result = await CloudSync.pullFromCloud();
+    showNotification('Stahuji data...', 'cloud_download');
+    const result = await CloudSync.restoreFromUserId(userId);
 
-        if (result.success && result.data) {
-            CloudSync.mergeData(result.data);
-            showNotification('Data úspěšně obnovena!');
-            renderApp();
-        } else if (result.success && !result.data) {
-            showNotification('Pro toto ID nebyla nalezena žádná data');
-        } else {
-            showNotification('Chyba: ' + result.error);
-        }
+    if (result.success) {
+        showNotification('Data úspěšně obnovena!', 'cloud_done');
+        renderApp('dashboard');
     } else {
-        showNotification('Neplatné Sync ID');
+        showNotification(result.notFound ? result.error : 'Chyba: ' + result.error, 'warning');
     }
 }
 
@@ -2791,6 +2860,13 @@ function calculateFuelPriceStats(refuels) {
  * Initialize all statistics charts
  */
 let statsCharts = {}; // Store chart instances for cleanup
+
+function destroyStatsCharts() {
+    Object.values(statsCharts).forEach(chart => {
+        try { if (chart) chart.destroy(); } catch (e) { /* ignore */ }
+    });
+    statsCharts = {};
+}
 
 function initStatsCharts(vehicle, stats, serviceCosts, refuels, currency, retryCount = 0) {
     try {
@@ -2833,10 +2909,10 @@ function initStatsCharts(vehicle, stats, serviceCosts, refuels, currency, retryC
         Logger.info('Charts', 'Initializing statistics charts');
 
         // Destroy existing charts to prevent memory leaks
-        Object.values(statsCharts).forEach(chart => {
-            if (chart) chart.destroy();
-        });
-        statsCharts = {};
+        destroyStatsCharts();
+
+        // User left the stats tab before Chart.js was ready
+        if (currentTab !== 'stats') return;
 
         const fuelCost = stats ? parseFloat(stats.totalCost) : 0;
 

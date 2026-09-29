@@ -1,10 +1,11 @@
-const CACHE_VERSION = 'v2.7.2';
+const CACHE_VERSION = 'v2.8.0';
 const CACHE_NAME = `fuel-tracker-${CACHE_VERSION}`;
 
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
     './css/style.css',
+    './js/utils.js',
     './js/app.js',
     './js/data.js',
     './js/logger.js',
@@ -15,20 +16,18 @@ const ASSETS_TO_CACHE = [
     './icons/icon-512.png'
 ];
 
-// Install event - cache assets and immediately activate
+// Install event - cache assets.
+// The new version does NOT activate itself (no skipWaiting here): the page shows
+// an "Aktualizovat" banner and the user decides, so a half-filled form is not lost.
 self.addEventListener('install', event => {
     console.log('[Service Worker] Installing version:', CACHE_VERSION);
 
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => {
-                console.log('[Service Worker] Caching assets');
-                return cache.addAll(ASSETS_TO_CACHE);
-            })
-            .then(() => {
-                // Immediately activate new service worker (auto-update)
-                console.log('[Service Worker] Skip waiting - auto update enabled');
-                return self.skipWaiting();
+                // cache: 'reload' bypasses the browser HTTP cache, so a new version
+                // never stores stale files
+                return cache.addAll(ASSETS_TO_CACHE.map(url => new Request(url, { cache: 'reload' })));
             })
             .catch(error => {
                 console.error('[Service Worker] Installation failed:', error);
@@ -53,20 +52,7 @@ self.addEventListener('activate', event => {
                         })
                 );
             })
-            .then(() => {
-                // Take control of all clients immediately (auto-update)
-                console.log('[Service Worker] Claiming clients - auto update');
-                return self.clients.claim();
-            })
-            .then(() => {
-                // Notify all clients to reload for the new version
-                return self.clients.matchAll({ type: 'window' });
-            })
-            .then(clients => {
-                clients.forEach(client => {
-                    client.postMessage({ type: 'SW_UPDATED', version: CACHE_VERSION });
-                });
-            })
+            .then(() => self.clients.claim())
             .catch(error => {
                 console.error('[Service Worker] Activation failed:', error);
             })
@@ -80,8 +66,8 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // Skip Chrome extensions and other non-http(s) requests
-    if (!event.request.url.startsWith('http')) {
+    // Only our own files (skips extensions, fonts and other origins)
+    if (new URL(event.request.url).origin !== self.location.origin) {
         return;
     }
 
@@ -98,18 +84,16 @@ self.addEventListener('fetch', event => {
     }
 
     event.respondWith(
-        caches.match(event.request)
+        caches.match(event.request, { ignoreSearch: event.request.mode === 'navigate' })
             .then(cachedResponse => {
                 if (cachedResponse) {
-                    console.log('[Service Worker] Serving from cache:', event.request.url);
                     return cachedResponse;
                 }
 
-                console.log('[Service Worker] Fetching from network:', event.request.url);
                 return fetch(event.request)
                     .then(networkResponse => {
                         // Cache successful responses
-                        if (networkResponse && networkResponse.status === 200) {
+                        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
                             // Clone the response before caching
                             const responseToCache = networkResponse.clone();
 
@@ -126,6 +110,11 @@ self.addEventListener('fetch', event => {
                     })
                     .catch(error => {
                         console.error('[Service Worker] Fetch failed:', error);
+
+                        // Offline navigation -> app shell
+                        if (event.request.mode === 'navigate') {
+                            return caches.match('./index.html');
+                        }
 
                         // Return offline page or error response
                         return new Response('Offline - Network unavailable', {

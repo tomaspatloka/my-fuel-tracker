@@ -1,7 +1,7 @@
 # Cloudflare Pages Redirects Configuration
-
-# SPA - All routes to index.html (for client-side routing if needed in future)
-/* /index.html 200
-
-# Force HTTPS (Cloudflare handles this automatically, but good to specify)
-http://:splat https://:splat 301!
+#
+# Intentionally empty.
+# - The former SPA fallback "/* /index.html 200" returned index.html (status 200)
+#   for missing files, which the service worker then cached as JS/CSS.
+# - HTTP -> HTTPS is handled by Cloudflare ("Always Use HTTPS"); domain-level
+#   rules are not supported in _redirects.

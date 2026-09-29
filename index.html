@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+        content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="Aplikace pro sledování spotřeby paliva">
     <meta name="theme-color" content="#3f51b5">
     <title>FuelTracker</title>
@@ -47,27 +47,27 @@
         <!-- Tabs -->
         <nav class="tabs-container">
             <div class="tabs-scroll">
-                <button class="tab active" onclick="switchTab('dashboard', event)">
+                <button class="tab active" data-tab="dashboard" onclick="switchTab('dashboard', event)">
                     <span class="material-symbols-outlined">dashboard</span>
                     <span class="tab-label">Přehled</span>
                 </button>
-                <button class="tab" onclick="switchTab('refuel', event)">
+                <button class="tab" data-tab="refuel" onclick="switchTab('refuel', event)">
                     <span class="material-symbols-outlined">add_circle</span>
                     <span class="tab-label">Tankování</span>
                 </button>
-                <button class="tab" onclick="switchTab('stats', event)">
+                <button class="tab" data-tab="stats" onclick="switchTab('stats', event)">
                     <span class="material-symbols-outlined">bar_chart</span>
                     <span class="tab-label">Statistiky</span>
                 </button>
-                <button class="tab" onclick="switchTab('service', event)">
+                <button class="tab" data-tab="service" onclick="switchTab('service', event)">
                     <span class="material-symbols-outlined">build</span>
                     <span class="tab-label">Servis</span>
                 </button>
-                <button class="tab" onclick="switchTab('garage', event)">
+                <button class="tab" data-tab="garage" onclick="switchTab('garage', event)">
                     <span class="material-symbols-outlined">directions_car</span>
                     <span class="tab-label">Garáž</span>
                 </button>
-                <button class="tab" onclick="switchTab('settings', event)">
+                <button class="tab" data-tab="settings" onclick="switchTab('settings', event)">
                     <span class="material-symbols-outlined">settings</span>
                     <span class="tab-label">Nastavení</span>
                 </button>
@@ -81,9 +81,18 @@
 
         <!-- Floating Action Button (Visible on Dashboard and Log list) -->
         <div class="fab-container" id="fabContainer">
-            <button class="fab-main" onclick="switchTab('refuel', null)">
+            <button class="fab-main" onclick="openRefuelModal()" aria-label="Nové tankování">
                 <span class="material-symbols-outlined">add</span>
             </button>
+        </div>
+
+        <!-- Update banner (new version ready - the user decides when to reload) -->
+        <div id="updateBanner" class="update-banner" style="display: none;" role="status">
+            <div class="update-content">
+                <span class="material-symbols-outlined">system_update</span>
+                <span>Je dostupná nová verze</span>
+            </div>
+            <button class="button" id="updateButton" onclick="applyAppUpdate()">Aktualizovat</button>
         </div>
 
         <!-- Notification -->
@@ -118,7 +127,7 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">Objem nádrže (l)</label>
-                    <input type="number" id="carTank" class="text-field" placeholder="50">
+                    <input type="text" inputmode="decimal" id="carTank" class="text-field" placeholder="50">
                 </div>
                 <div class="stats-grid">
                     <div class="form-group" style="margin-bottom:0;">
@@ -157,7 +166,7 @@
 
                 <div class="form-group">
                     <label class="form-label">Stav tachometru (km)</label>
-                    <input type="number" id="refuelOdo" class="text-field">
+                    <input type="text" inputmode="numeric" autocomplete="off" id="refuelOdo" class="text-field">
                     <div id="refuelOdoHint"
                         style="font-size: 0.75rem; color: var(--md-sys-color-outline); margin-top: 4px;"></div>
                 </div>
@@ -165,19 +174,19 @@
                 <div class="stats-grid">
                     <div class="form-group" style="margin-bottom:0;">
                         <label class="form-label">Natankováno (l)</label>
-                        <input type="number" id="refuelLiters" class="text-field" step="0.01"
-                            oninput="calculateTotal()">
+                        <input type="text" inputmode="decimal" autocomplete="off" id="refuelLiters" class="text-field"
+                            oninput="onRefuelLitersInput()">
                     </div>
                     <div class="form-group" style="margin-bottom:0;">
                         <label class="form-label">Cena za litr</label>
-                        <input type="number" id="refuelPrice" class="text-field" step="0.01" oninput="calculateTotal()">
+                        <input type="text" inputmode="decimal" autocomplete="off" id="refuelPrice" class="text-field" oninput="onRefuelPriceInput()">
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Celková cena</label>
-                    <input type="number" id="refuelTotal" class="text-field" step="0.1" readonly
-                        style="background-color: var(--md-sys-color-surface-variant); cursor: not-allowed;">
+                    <label class="form-label">Celková cena (z účtenky)</label>
+                    <input type="text" inputmode="decimal" autocomplete="off" id="refuelTotal" class="text-field" oninput="onRefuelTotalInput()">
+                    <div style="font-size: 0.75rem; color: var(--md-sys-color-outline); margin-top: 4px;">Dopočítá se, nebo ji zadejte z účtenky (i se slevou) - cena za litr se pak dopočítá.</div>
                 </div>
 
                 <div class="form-group">
@@ -185,6 +194,14 @@
                         <input type="checkbox" id="refuelFull" checked>
                         <span>Plná nádrž</span>
                     </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="refuelMissed">
+                        <span>Předchozí tankování nezapsáno</span>
+                    </label>
+                    <div style="font-size: 0.75rem; color: var(--md-sys-color-outline); margin-top: 4px;">Zaškrtněte, když jste nějaké tankování zapomněli zapsat - spotřeba se tím nepokazí.</div>
                 </div>
 
                 <div class="form-group">
@@ -255,12 +272,18 @@
 
                 <div class="form-group" id="serviceOdoGroup">
                     <label class="form-label">Stav tachometru (km)</label>
-                    <input type="number" id="serviceOdometer" class="text-field" placeholder="Volitelné">
+                    <input type="text" inputmode="numeric" id="serviceOdometer" class="text-field" placeholder="Volitelné">
+                </div>
+
+                <div class="form-group" id="serviceNextOdoGroup">
+                    <label class="form-label">Příští servis při (km)</label>
+                    <input type="text" inputmode="numeric" id="serviceNextOdometer" class="text-field" placeholder="Volitelné, např. 165000">
+                    <div style="font-size: 0.75rem; color: var(--md-sys-color-outline); margin-top: 4px;">Aplikace upozorní 1000 km předem.</div>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Cena (Kč)</label>
-                    <input type="number" id="serviceCost" class="text-field" step="0.01">
+                    <label class="form-label" id="serviceCostLabel">Cena</label>
+                    <input type="text" inputmode="decimal" id="serviceCost" class="text-field">
                 </div>
 
                 <div class="form-group">
@@ -282,68 +305,79 @@
     <script src="js/vendor/chart.min.js"></script>
 
     <!-- Scripts -->
+    <script src="js/utils.js"></script>
     <script src="js/logger.js"></script>
     <script src="js/data.js"></script>
     <script src="js/sync.js"></script>
     <script src="js/app.js"></script>
     
-    <!-- PWA Service Worker Registration - Auto Update -->
+    <!-- PWA Service Worker Registration -->
     <script>
+        // A new version is installed in the background, but the page is NOT
+        // reloaded automatically (that used to wipe a half-filled refuel form).
+        // The user gets a banner and reloads when ready.
+        let swWaitingWorker = null;
+        let swRefreshing = false;
+        let swUpdateRequested = false;
+
+        function showUpdateBanner(worker) {
+            swWaitingWorker = worker;
+            const banner = document.getElementById('updateBanner');
+            if (banner) banner.style.display = 'flex';
+        }
+
+        function applyAppUpdate() {
+            const anyModalOpen = document.querySelector('.modal.active');
+            if (anyModalOpen && !confirm('Máte otevřený formulář. Neuložené údaje se ztratí. Aktualizovat?')) {
+                return;
+            }
+            swUpdateRequested = true;
+            if (swWaitingWorker) {
+                swWaitingWorker.postMessage({ type: 'SKIP_WAITING' });
+            } else {
+                window.location.reload();
+            }
+        }
+
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js')
                     .then(reg => {
-                        console.log('Service Worker registered.');
+                        // Update already waiting from an earlier visit
+                        if (reg.waiting && navigator.serviceWorker.controller) {
+                            showUpdateBanner(reg.waiting);
+                        }
 
-                        // Check for updates periodically (every 60 seconds when app is open)
-                        setInterval(() => {
-                            reg.update();
-                        }, 60000);
-
-                        // Also check for updates when app becomes visible
-                        document.addEventListener('visibilitychange', () => {
-                            if (document.visibilityState === 'visible') {
-                                reg.update();
-                            }
-                        });
-
-                        // Log when update is found
                         reg.addEventListener('updatefound', () => {
                             const newWorker = reg.installing;
-                            Logger.info('ServiceWorker', 'Update found, installing new version');
-
+                            if (!newWorker) return;
                             newWorker.addEventListener('statechange', () => {
-                                if (newWorker.state === 'installed') {
-                                    Logger.info('ServiceWorker', 'New version installed');
+                                // Only an UPDATE (not the first install) shows the banner
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    if (typeof Logger !== 'undefined') {
+                                        Logger.info('ServiceWorker', 'New version installed, waiting for user');
+                                    }
+                                    showUpdateBanner(newWorker);
                                 }
                             });
                         });
+
+                        // Check for updates every 30 minutes and when the app becomes visible
+                        setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
+                        document.addEventListener('visibilitychange', () => {
+                            if (document.visibilityState === 'visible') reg.update().catch(() => {});
+                        });
                     })
                     .catch(err => {
-                        console.log('Service Worker registration failed:', err);
                         if (typeof Logger !== 'undefined') {
                             Logger.error('ServiceWorker', 'Registration failed', { error: err.message });
                         }
                     });
 
-                // Listen for messages from Service Worker
-                navigator.serviceWorker.addEventListener('message', event => {
-                    if (event.data && event.data.type === 'SW_UPDATED') {
-                        console.log('App updated to version:', event.data.version);
-                        if (typeof Logger !== 'undefined') {
-                            Logger.info('ServiceWorker', 'Auto-update complete', { version: event.data.version });
-                        }
-                        // Auto reload to apply update
-                        window.location.reload();
-                    }
-                });
-
-                // Auto reload when new service worker takes control
+                // Reload once, after the user clicked "Aktualizovat"
                 navigator.serviceWorker.addEventListener('controllerchange', () => {
-                    console.log('New service worker activated, reloading...');
-                    if (typeof Logger !== 'undefined') {
-                        Logger.info('ServiceWorker', 'Controller changed, reloading');
-                    }
+                    if (!swUpdateRequested || swRefreshing) return;
+                    swRefreshing = true;
                     window.location.reload();
                 });
             });

@@ -345,7 +345,7 @@ Díky všem, kdo testovali v2.0.0 a poskytli feedback!
 - 📖 [Full Documentation](ERROR_HANDLING_DOCUMENTATION.md)
 - 📝 [Changelog](CHANGELOG.md)
 - 🚀 [Deployment Guide](DEPLOYMENT.md)
-- 🐛 [Report Bug](https://github.com/yourusername/fuel-tracker/issues)
+- 🐛 [Report Bug](https://github.com/tomaspatloka/my-fuel-tracker/issues)
 
 ---
 

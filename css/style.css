@@ -279,6 +279,8 @@ body {
 .card-title {
     font-size: 1.1rem;
     font-weight: 500;
+    min-width: 0;
+    overflow-wrap: anywhere;
     color: var(--md-sys-color-primary);
     display: flex;
     align-items: center;
@@ -508,7 +510,8 @@ body.dark-mode select.text-field {
     font-size: 0.875rem;
     align-items: center;
     gap: 12px;
-    min-width: 300px;
+    min-width: min(300px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
 }
 
 /* List Items (Refuel Logs) */
@@ -633,6 +636,7 @@ input:checked+.slider:before {
 }
 
 .swipe-content {
+    touch-action: pan-y; /* vertical scrolling stays native, horizontal = swipe */
     background-color: var(--md-sys-color-surface);
     position: relative;
     z-index: 2;
@@ -848,4 +852,9 @@ input:checked+.slider:before {
     #changelogContent {
         padding: 8px;
     }
+}
+/* Update banner button text on small screens */
+.update-banner .button {
+    color: inherit;
+    white-space: nowrap;
 }
